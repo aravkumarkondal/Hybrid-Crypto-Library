@@ -1,0 +1,17 @@
+[package]
+name = "compliance_suite"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+e2ee = { path = "../e2ee" }
+hybrid_crypto = { path = "../hybrid_crypto" }
+cpu = { path = "../cpu" }
+gpu = { path = "../gpu" }
+
+[dev-dependencies]
+criterion = "0.5"
+kani = "0.0.1"
+
+[lints]
+workspace = true

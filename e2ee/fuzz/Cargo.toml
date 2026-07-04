@@ -1,0 +1,21 @@
+[package]
+name = "e2ee-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+e2ee = { path = ".." }
+
+[[bin]]
+name = "e2ee_fuzz"
+path = "src/e2ee_fuzz.rs"
+test = false
+doc = false

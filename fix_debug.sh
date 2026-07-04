@@ -1,0 +1,2 @@
+#!/bin/bash
+sed -i '' 's/let tag = aes_gcm::aes256_gcm_encrypt(&final_key, iv, &\[\], payload, &mut ciphertext);/let tag = aes_gcm::aes256_gcm_encrypt(\&final_key, iv, \&\[\], payload, \&mut ciphertext);\n    println!("DEBUG ENCRYPT: ecc_ss = {:?}", ecc_ss);\n    println!("DEBUG ENCRYPT: pqc_ss = {:?}", pqc_ss);\n    println!("DEBUG ENCRYPT: final_key = {:?}", final_key);\n    println!("DEBUG ENCRYPT: expected_tag = {:?}", tag);/g' src/lib.rs

@@ -1,0 +1,18 @@
+[package]
+name = "e2ee"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hybrid_crypto = { path = "../hybrid_crypto" }
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.11.0"
+
+[[bench]]
+name = "e2ee_benchmark"
+harness = false
+
+[lints]
+workspace = true

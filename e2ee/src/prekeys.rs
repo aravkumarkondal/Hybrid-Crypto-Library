@@ -21,6 +21,7 @@ impl Drop for SignedPreKeyPair {
     }
 }
 
+#[derive(Clone)]
 pub struct OneTimePreKeyPair {
     pub id: u32,
     pub ecc_private: [u8; 32],
@@ -55,7 +56,7 @@ impl SignedPreKeyPair {
         entropy_pqc: &[u8; 64],
         identity_key: &IdentityKeyPair,
         sign_rnd: &[u8; 32],
-    ) -> Result<Self, hybrid_crypto::CryptoError> {
+    ) -> Result<Self, E2EError> {
         let ecc_public = x25519_base(entropy_ecc);
         let (pqc_public, pqc_private) = ml_kem_768_keypair(entropy_pqc);
         
@@ -77,6 +78,7 @@ impl SignedPreKeyPair {
 }
 
 impl OneTimePreKeyPair {
+    #[must_use]
     pub fn generate(id: u32, entropy_ecc: &[u8; 32], entropy_pqc: &[u8; 64]) -> Self {
         let ecc_public = x25519_base(entropy_ecc);
         let (pqc_public, pqc_private) = ml_kem_768_keypair(entropy_pqc);

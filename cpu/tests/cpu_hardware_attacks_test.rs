@@ -38,7 +38,7 @@ mod cpu_hardware_attacks {
         // On a standard test runner, this might actually succeed if there's enough swap, 
         // or fail with AllocError. Either way, it MUST NOT panic.
         match result {
-            Ok(_) => {
+            Ok(()) => {
                 // If it succeeds, the system has huge RAM. Just assert it didn't crash.
                 assert!(true, "System survived the allocation request");
             },

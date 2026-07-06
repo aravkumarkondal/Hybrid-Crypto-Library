@@ -1,14 +1,13 @@
-use e2ee::{IdentityKeyPair, Session, PreKeyBundle, SignedPreKeyPair, OneTimePreKeyPair};
+use e2ee::IdentityKeyPair;
 extern crate alloc;
-use alloc::vec::Vec;
 use hybrid_crypto::aes_gcm::{aes256_gcm_encrypt, aes256_gcm_decrypt};
 use hybrid_crypto::hkdf::hkdf_expand;
 
 // Simulated Sealed Sender logic using the existing primitives.
 #[test]
 fn test_sealed_sender_envelope_integrity_and_privacy() {
-    let alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
-    let server_id = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
+    let _alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
+    let _server_id = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
     
     // Server has a known delivery public key
     let mut server_key = [0u8; 32];
@@ -18,7 +17,7 @@ fn test_sealed_sender_envelope_integrity_and_privacy() {
     
     // Alice encrypts the envelope using server's delivery key
     // The envelope hides the sender's identity.
-    let mut iv = [0u8; 12];
+    let iv = [0u8; 12];
     let mut ciphertext = alloc::vec::Vec::new();
     ciphertext.resize(inner_plaintext.len(), 0);
     

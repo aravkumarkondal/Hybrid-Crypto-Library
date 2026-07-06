@@ -75,7 +75,7 @@ mod ffi_safety_tests {
     fn test_ffi_misaligned_pointers() {
         // Rust's `as_ptr` guarantees alignment for the type.
         // We simulate a badly aligned pointer passed from C.
-        let in_buf = [0u8; 32];
+        let _in_buf = [0u8; 32];
         let mut out_buf = [0u8; 32];
         
         // u8 is aligned to 1, so it's impossible to misalign u8. 

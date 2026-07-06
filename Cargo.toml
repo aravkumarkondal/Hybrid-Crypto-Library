@@ -1,7 +1,7 @@
 [workspace]
 members = ["compliance_suite","cpu","e2ee", "gpu",
     "hybrid_crypto", "wasm_api", "compliance_suite"
-]
+, "apple_keystore", "windows_keystore", "linux_keystore", "web_keystore"]
 resolver = "2"
 
 [workspace.lints.rust]

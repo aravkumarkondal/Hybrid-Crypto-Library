@@ -58,7 +58,8 @@ pub struct SessionState {
 }
 
 impl SessionState {
-    pub fn new(ratchet: DoubleRatchetState, pending_kem_ciphertext: Option<[u8; 1088]>) -> Self {
+    #[must_use]
+    pub const fn new(ratchet: DoubleRatchetState, pending_kem_ciphertext: Option<[u8; 1088]>) -> Self {
         Self {
             version: STATE_VERSION_V1,
             ratchet,
@@ -178,78 +179,86 @@ impl Serialize for SessionState {
             return Err(E2EError::InvalidMessageFormat); // Length mismatch
         }
 
-        let mut root_key = [0u8; 32];
+        let mut ratchet = DoubleRatchetState {
+            root_key: [0u8; 32],
+            dh_send_private: [0u8; 32],
+            dh_send_public: [0u8; 32],
+            dh_recv_public: None,
+            kem_send_private: [0u8; 2400],
+            kem_send_public: [0u8; 1184],
+            kem_recv_public: None,
+            send_chain_key: None,
+            recv_chain_key: None,
+            send_msg_num: 0,
+            recv_msg_num: 0,
+            prev_send_msg_num: 0,
+            skipped_message_keys: Vec::new(),
+            past_dh_recv_publics: Vec::new(),
+        };
+
         if offset + 32 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
-        root_key.copy_from_slice(&data[offset..offset+32]);
+        ratchet.root_key.copy_from_slice(&data[offset..offset+32]);
         offset += 32;
 
-        let mut dh_send_private = [0u8; 32];
         if offset + 32 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
-        dh_send_private.copy_from_slice(&data[offset..offset+32]);
+        ratchet.dh_send_private.copy_from_slice(&data[offset..offset+32]);
         offset += 32;
 
-        let mut dh_send_public = [0u8; 32];
         if offset + 32 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
-        dh_send_public.copy_from_slice(&data[offset..offset+32]);
+        ratchet.dh_send_public.copy_from_slice(&data[offset..offset+32]);
         offset += 32;
 
-        let mut dh_recv_public = None;
         if offset + 1 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
         if data[offset] == 1 {
             offset += 1;
             if offset + 32 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
             let mut dh = [0u8; 32];
             dh.copy_from_slice(&data[offset..offset+32]);
-            dh_recv_public = Some(dh);
+            ratchet.dh_recv_public = Some(dh);
             offset += 32;
         } else {
             offset += 1;
         }
 
-        let mut kem_send_private = [0u8; 2400];
         if offset + 2400 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
-        kem_send_private.copy_from_slice(&data[offset..offset+2400]);
+        ratchet.kem_send_private.copy_from_slice(&data[offset..offset+2400]);
         offset += 2400;
 
-        let mut kem_send_public = [0u8; 1184];
         if offset + 1184 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
-        kem_send_public.copy_from_slice(&data[offset..offset+1184]);
+        ratchet.kem_send_public.copy_from_slice(&data[offset..offset+1184]);
         offset += 1184;
 
-        let mut kem_recv_public = None;
         if offset + 1 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
         if data[offset] == 1 {
             offset += 1;
             if offset + 1184 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
             let mut kp = [0u8; 1184];
             kp.copy_from_slice(&data[offset..offset+1184]);
-            kem_recv_public = Some(kp);
+            ratchet.kem_recv_public = Some(kp);
             offset += 1184;
         } else {
             offset += 1;
         }
 
-        let mut send_chain_key = None;
         if offset + 1 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
         if data[offset] == 1 {
             offset += 1;
             if offset + 32 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
             let mut sk = [0u8; 32];
             sk.copy_from_slice(&data[offset..offset+32]);
-            send_chain_key = Some(sk);
+            ratchet.send_chain_key = Some(sk);
             offset += 32;
         } else {
             offset += 1;
         }
 
-        let mut recv_chain_key = None;
         if offset + 1 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
         if data[offset] == 1 {
             offset += 1;
             if offset + 32 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
             let mut rk = [0u8; 32];
             rk.copy_from_slice(&data[offset..offset+32]);
-            recv_chain_key = Some(rk);
+            ratchet.recv_chain_key = Some(rk);
             offset += 32;
         } else {
             offset += 1;
@@ -259,15 +268,15 @@ impl Serialize for SessionState {
         
         let mut b = [0u8; 4];
         b.copy_from_slice(&data[offset..offset+4]);
-        let send_msg_num = u32::from_le_bytes(b);
+        ratchet.send_msg_num = u32::from_le_bytes(b);
         offset += 4;
         
         b.copy_from_slice(&data[offset..offset+4]);
-        let recv_msg_num = u32::from_le_bytes(b);
+        ratchet.recv_msg_num = u32::from_le_bytes(b);
         offset += 4;
         
         b.copy_from_slice(&data[offset..offset+4]);
-        let prev_send_msg_num = u32::from_le_bytes(b);
+        ratchet.prev_send_msg_num = u32::from_le_bytes(b);
         offset += 4;
 
         if offset + 4 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
@@ -279,7 +288,6 @@ impl Serialize for SessionState {
         if skipped_keys_len > 2000 { return Err(E2EError::InvalidMessageFormat); }
         if offset + skipped_keys_len * (32 + 4 + 32 + 12) > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
 
-        let mut skipped_message_keys = Vec::with_capacity(skipped_keys_len);
         for _ in 0..skipped_keys_len {
             let mut peer_dh_public = [0u8; 32];
             peer_dh_public.copy_from_slice(&data[offset..offset+32]);
@@ -297,7 +305,7 @@ impl Serialize for SessionState {
             iv.copy_from_slice(&data[offset..offset+12]);
             offset += 12;
             
-            skipped_message_keys.push(SkippedKeyState { peer_dh_public, message_number, key, iv });
+            ratchet.skipped_message_keys.push(SkippedKeyState { peer_dh_public, message_number, key, iv });
         }
 
         if offset + 4 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
@@ -308,11 +316,10 @@ impl Serialize for SessionState {
         if past_dh_len > 100 { return Err(E2EError::InvalidMessageFormat); }
         if offset + past_dh_len * 32 > data.len() - 32 { return Err(E2EError::InvalidMessageFormat); }
 
-        let mut past_dh_recv_publics = Vec::with_capacity(past_dh_len);
         for _ in 0..past_dh_len {
             let mut p = [0u8; 32];
             p.copy_from_slice(&data[offset..offset+32]);
-            past_dh_recv_publics.push(p);
+            ratchet.past_dh_recv_publics.push(p);
             offset += 32;
         }
 
@@ -324,25 +331,7 @@ impl Serialize for SessionState {
             let mut ct = [0u8; 1088];
             ct.copy_from_slice(&data[offset..offset+1088]);
             pending_kem_ciphertext = Some(ct);
-            // offset += 1088; // Not strictly necessary since we're done
         }
-
-        let ratchet = DoubleRatchetState {
-            root_key,
-            dh_send_private,
-            dh_send_public,
-            dh_recv_public,
-            kem_send_private,
-            kem_send_public,
-            kem_recv_public,
-            send_chain_key,
-            recv_chain_key,
-            send_msg_num,
-            recv_msg_num,
-            prev_send_msg_num,
-            skipped_message_keys,
-            past_dh_recv_publics,
-        };
 
         Ok(Self {
             version,

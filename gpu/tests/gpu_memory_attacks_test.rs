@@ -12,7 +12,7 @@ mod gpu_cyber_attacks {
         // An attacker could feed a massive global_size to scrape adjacent memory if no bounds exist.
         // We look for explicit conditional bounds checking like `if (idx < 256)`
         // We look for explicit mathematical limitations or strict block sizes (e.g. `reqd_work_group_size(128, 1, 1)`)
-        let has_opencl_bounds_check = opencl_kernel.contains("reqd_work_group_size(128, 1, 1)");
+        let has_opencl_bounds_check = opencl_kernel.contains("reqd_work_group_size(1, 128, 1)");
         assert!(has_opencl_bounds_check, "GPU OpenCL Kernel MUST enforce explicit VRAM boundary limits via fixed workgroup sizes to prevent overflow extraction attacks");
         
         // 2. Ensure WGSL Keccak permutation enforces strict array access

@@ -1,5 +1,5 @@
+#![allow(unsafe_code)]
 use e2ee::ffi::*;
-use e2ee::identity::IdentityKeyPair;
 
 #[test]
 fn test_e2ee_ffi_bindings() {

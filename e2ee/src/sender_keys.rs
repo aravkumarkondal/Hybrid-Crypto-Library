@@ -20,7 +20,8 @@ impl Drop for SenderKeyChain {
 }
 
 impl SenderKeyChain {
-    pub fn new(seed: &[u8; 32], iteration: u32) -> Self {
+    #[must_use]
+    pub const fn new(seed: &[u8; 32], iteration: u32) -> Self {
         Self {
             chain_key: *seed,
             iteration,
@@ -218,7 +219,8 @@ pub struct SenderKeyContext {
 }
 
 impl SenderKeyContext {
-    pub fn new(my_identity: IdentityKeyPair, group_id: &[u8; 32], seed: &[u8; 32], chain_id: u32) -> Self {
+    #[must_use]
+    pub const fn new(my_identity: IdentityKeyPair, group_id: &[u8; 32], seed: &[u8; 32], chain_id: u32) -> Self {
         Self {
             my_identity,
             group_id: *group_id,
@@ -227,6 +229,7 @@ impl SenderKeyContext {
         }
     }
 
+    #[must_use]
     pub fn get_distribution_message(&self) -> SenderKeyDistributionMessage {
         SenderKeyDistributionMessage {
             group_id: self.group_id,
@@ -282,6 +285,7 @@ pub struct SenderKeyReceiver {
 }
 
 impl SenderKeyReceiver {
+    #[must_use]
     pub fn from_distribution_message(msg: &SenderKeyDistributionMessage) -> Self {
         Self {
             group_id: msg.group_id,

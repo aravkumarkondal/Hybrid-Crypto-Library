@@ -10,7 +10,7 @@ fn test_multithreaded_stress() {
     for t_id in 0..num_threads {
         handles.push(thread::spawn(move || {
             let mut a = [0i32; 256];
-            let b = [t_id as i32; 256];
+            let b = [t_id; 256];
             
             for _ in 0..iterations {
                 poly_add_simd(&mut a, &b);

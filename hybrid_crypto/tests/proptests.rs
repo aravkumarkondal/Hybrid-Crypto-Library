@@ -9,7 +9,7 @@ use hybrid_crypto::signature::verify;
 proptest! {
     // 1. Poly Multiplication (ntt_test module logic): inverse_ntt(ntt(x)) == x
     #[test]
-    fn test_ntt_inverse_property(mut poly in proptest::collection::vec(-4000000..4000000i32, 256)) {
+    fn test_ntt_inverse_property(poly in proptest::collection::vec(-4000000..4000000i32, 256)) {
         let mut p = [0i32; 256];
         p.copy_from_slice(&poly);
         let original = p;

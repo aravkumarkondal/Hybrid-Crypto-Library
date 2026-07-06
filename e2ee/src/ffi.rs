@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 
-use crate::*;
+use crate::{alloc, Session, IdentityKeyPair, E2EError, SignedPreKeyPair, OneTimePreKeyPair, PreKeyBundle, PreKeyMessage, Message};
 use crate::serialization::Serialize;
 use core::slice;
 use alloc::boxed::Box;
@@ -40,20 +40,29 @@ pub unsafe extern "C" fn e2ee_identity_generate(
     if entropy_ecc_ptr.is_null() || entropy_pqc_ptr.is_null() || ecc_priv_out.is_null() || ecc_pub_out.is_null() || pqc_priv_out.is_null() || pqc_pub_out.is_null() {
         return -1;
     }
-    let entropy_ecc = &*(entropy_ecc_ptr as *const [u8; 32]);
-    let entropy_pqc = &*(entropy_pqc_ptr as *const [u8; 32]);
+    let entropy_ecc = &*entropy_ecc_ptr.cast::<[u8; 32]>();
+    let entropy_pqc = &*entropy_pqc_ptr.cast::<[u8; 32]>();
     
     let id_key = IdentityKeyPair::generate(entropy_ecc, entropy_pqc);
     
-    core::ptr::copy_nonoverlapping(id_key.ecc_private.as_ptr(), ecc_priv_out, 32);
-    core::ptr::copy_nonoverlapping(id_key.ecc_public.as_ptr(), ecc_pub_out, 32);
+    let priv_bytes = match id_key.ecc_private_bytes() {
+        Ok(b) => b,
+        Err(_) => return E2EError::InvalidSignature as i32, // Cannot extract hardware key
+    };
+    core::ptr::copy_nonoverlapping(priv_bytes.as_ptr(), ecc_priv_out, 32);
     
-    let sk_bytes = id_key.pqc_private.as_slice();
+    let pub_key = id_key.public_key();
+    core::ptr::copy_nonoverlapping(pub_key.ecc_public.as_ptr(), ecc_pub_out, 32);
+    
+    let sk_bytes = match &id_key {
+        IdentityKeyPair::Software(s) => s.pqc_private.as_slice(),
+        _ => return -1,
+    };
     core::ptr::copy_nonoverlapping(sk_bytes.as_ptr(), pqc_priv_out, sk_bytes.len());
     
-    core::ptr::copy_nonoverlapping(id_key.pqc_public.as_ptr(), pqc_pub_out, id_key.pqc_public.len());
+    core::ptr::copy_nonoverlapping(pub_key.pqc_public.as_ptr(), pqc_pub_out, pub_key.pqc_public.len());
     if !pqc_pub_len_out.is_null() {
-        *pqc_pub_len_out = id_key.pqc_public.len();
+        *pqc_pub_len_out = pub_key.pqc_public.len();
     }
     
     0
@@ -80,9 +89,9 @@ pub unsafe extern "C" fn e2ee_signed_prekey_generate(
     if entropy_ecc_ptr.is_null() || entropy_pqc_ptr.is_null() || identity_ecc_priv_ptr.is_null() || identity_pqc_priv_ptr.is_null() || identity_pqc_pub_ptr.is_null() || sign_rnd_ptr.is_null() {
         return -1;
     }
-    let entropy_ecc = &*(entropy_ecc_ptr as *const [u8; 32]);
-    let entropy_pqc = &*(entropy_pqc_ptr as *const [u8; 64]);
-    let sign_rnd = &*(sign_rnd_ptr as *const [u8; 32]);
+    let entropy_ecc = &*entropy_ecc_ptr.cast::<[u8; 32]>();
+    let entropy_pqc = &*entropy_pqc_ptr.cast::<[u8; 64]>();
+    let sign_rnd = &*sign_rnd_ptr.cast::<[u8; 32]>();
 
     let mut ecc_priv = [0u8; 32];
     core::ptr::copy_nonoverlapping(identity_ecc_priv_ptr, ecc_priv.as_mut_ptr(), 32);
@@ -94,12 +103,12 @@ pub unsafe extern "C" fn e2ee_signed_prekey_generate(
     let mut pqc_public = alloc::vec![0u8; E2EE_MLDSA87_PUBLIC_BYTES];
     core::ptr::copy_nonoverlapping(identity_pqc_pub_ptr, pqc_public.as_mut_ptr(), E2EE_MLDSA87_PUBLIC_BYTES);
 
-    let id_key = IdentityKeyPair {
+    let id_key = IdentityKeyPair::Software(crate::identity::SoftwareIdentityKeyPair {
         ecc_private: ecc_priv,
         ecc_public,
         pqc_private: hybrid_crypto::utils::SecretKey(pqc_private_vec),
         pqc_public,
-    };
+    });
 
     match SignedPreKeyPair::generate(id, entropy_ecc, entropy_pqc, &id_key, sign_rnd) {
         Ok(spk) => {
@@ -130,8 +139,8 @@ pub unsafe extern "C" fn e2ee_onetime_prekey_generate(
     if entropy_ecc_ptr.is_null() || entropy_pqc_ptr.is_null() || ecc_priv_out.is_null() || ecc_pub_out.is_null() || pqc_priv_out.is_null() || pqc_pub_out.is_null() {
         return -1;
     }
-    let entropy_ecc = &*(entropy_ecc_ptr as *const [u8; 32]);
-    let entropy_pqc = &*(entropy_pqc_ptr as *const [u8; 64]);
+    let entropy_ecc = &*entropy_ecc_ptr.cast::<[u8; 32]>();
+    let entropy_pqc = &*entropy_pqc_ptr.cast::<[u8; 64]>();
 
     let opk = OneTimePreKeyPair::generate(id, entropy_ecc, entropy_pqc);
     core::ptr::copy_nonoverlapping(opk.ecc_private.as_ptr(), ecc_priv_out, 32);
@@ -184,24 +193,24 @@ pub unsafe extern "C" fn e2ee_session_create_initiator(
     let mut pqc_public = alloc::vec![0u8; E2EE_MLDSA87_PUBLIC_BYTES];
     core::ptr::copy_nonoverlapping(identity_pqc_pub_ptr, pqc_public.as_mut_ptr(), E2EE_MLDSA87_PUBLIC_BYTES);
 
-    let my_identity = IdentityKeyPair {
+    let my_identity = IdentityKeyPair::Software(crate::identity::SoftwareIdentityKeyPair {
         ecc_private: ecc_priv,
         ecc_public,
         pqc_private: hybrid_crypto::utils::SecretKey(pqc_private_vec),
         pqc_public,
-    };
+    });
 
-    let entropy_ecc_ephem = &*(entropy_ecc_ephem_ptr as *const [u8; 32]);
-    let entropy_kem_spk = &*(entropy_kem_spk_ptr as *const [u8; 32]);
+    let entropy_ecc_ephem = &*entropy_ecc_ephem_ptr.cast::<[u8; 32]>();
+    let entropy_kem_spk = &*entropy_kem_spk_ptr.cast::<[u8; 32]>();
     let entropy_kem_opk = if entropy_kem_opk_ptr.is_null() {
         None
     } else {
-        Some(&*(entropy_kem_opk_ptr as *const [u8; 32]))
+        Some(&*entropy_kem_opk_ptr.cast::<[u8; 32]>())
     };
     
-    let ratchet_entropy_dh = &*(ratchet_entropy_dh_ptr as *const [u8; 32]);
-    let ratchet_entropy_kem = &*(ratchet_entropy_kem_ptr as *const [u8; 64]);
-    let ratchet_entropy_kem_encaps = &*(ratchet_entropy_kem_encaps_ptr as *const [u8; 32]);
+    let ratchet_entropy_dh = &*ratchet_entropy_dh_ptr.cast::<[u8; 32]>();
+    let ratchet_entropy_kem = &*ratchet_entropy_kem_ptr.cast::<[u8; 64]>();
+    let ratchet_entropy_kem_encaps = &*ratchet_entropy_kem_encaps_ptr.cast::<[u8; 32]>();
 
     match Session::setup_as_initiator(
         &my_identity,
@@ -237,7 +246,7 @@ pub unsafe extern "C" fn e2ee_session_create_initiator(
     }
 }
 
-/// Sets up a session as the Responder upon receiving a PreKeyMessage.
+/// Sets up a session as the Responder upon receiving a `PreKeyMessage`.
 /// # Safety
 /// Pointers must be valid and point to correct buffers.
 #[no_mangle]
@@ -280,12 +289,12 @@ pub unsafe extern "C" fn e2ee_session_create_responder(
     let mut pqc_public = alloc::vec![0u8; E2EE_MLDSA87_PUBLIC_BYTES];
     core::ptr::copy_nonoverlapping(identity_pqc_pub_ptr, pqc_public.as_mut_ptr(), E2EE_MLDSA87_PUBLIC_BYTES);
 
-    let my_identity = IdentityKeyPair {
+    let my_identity = IdentityKeyPair::Software(crate::identity::SoftwareIdentityKeyPair {
         ecc_private: ecc_priv,
         ecc_public,
         pqc_private: hybrid_crypto::utils::SecretKey(pqc_private_vec),
         pqc_public,
-    };
+    });
 
     let mut spk_ecc_priv = [0u8; 32];
     core::ptr::copy_nonoverlapping(spk_ecc_priv_ptr, spk_ecc_priv.as_mut_ptr(), 32);
@@ -393,9 +402,9 @@ pub unsafe extern "C" fn e2ee_session_decrypt(
         Err(_) => return -1,
     };
     
-    let my_new_dh_entropy = &*(my_new_dh_entropy_ptr as *const [u8; 32]);
-    let my_new_kem_entropy = &*(my_new_kem_entropy_ptr as *const [u8; 64]);
-    let my_new_kem_encaps_entropy = &*(my_new_kem_encaps_entropy_ptr as *const [u8; 32]);
+    let my_new_dh_entropy = &*my_new_dh_entropy_ptr.cast::<[u8; 32]>();
+    let my_new_kem_entropy = &*my_new_kem_entropy_ptr.cast::<[u8; 64]>();
+    let my_new_kem_encaps_entropy = &*my_new_kem_encaps_entropy_ptr.cast::<[u8; 32]>();
 
     match session.decrypt_message(&msg, my_new_dh_entropy, my_new_kem_entropy, my_new_kem_encaps_entropy) {
         Ok(plaintext) => {

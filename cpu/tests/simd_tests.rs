@@ -25,7 +25,7 @@ mod simd_differential_tests {
         for _ in 0..100 {
             // Generate randomized input
             let mut input = vec![0u32; 256];
-            for val in input.iter_mut() {
+            for val in &mut input {
                 rng_state ^= rng_state << 13;
                 rng_state ^= rng_state >> 17;
                 rng_state ^= rng_state << 5;
@@ -46,7 +46,7 @@ mod simd_differential_tests {
         for _ in 0..100 {
             // Generate randomized input
             let mut input = vec![0u32; 256];
-            for val in input.iter_mut() {
+            for val in &mut input {
                 rng_state ^= rng_state << 13;
                 rng_state ^= rng_state >> 17;
                 rng_state ^= rng_state << 5;

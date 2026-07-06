@@ -6,14 +6,15 @@ pub enum ProtocolVersion {
 }
 
 impl ProtocolVersion {
-    pub fn from_u16(val: u16) -> Result<Self, E2EError> {
+    pub const fn from_u16(val: u16) -> Result<Self, E2EError> {
         match val {
-            1 => Ok(ProtocolVersion::V1),
+            1 => Ok(Self::V1),
             _ => Err(E2EError::UnsupportedVersion),
         }
     }
 
-    pub fn to_u16(self) -> u16 {
+    #[must_use]
+    pub const fn to_u16(self) -> u16 {
         self as u16
     }
 }

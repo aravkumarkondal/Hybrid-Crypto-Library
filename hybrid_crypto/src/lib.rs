@@ -34,6 +34,8 @@ impl fmt::Display for CryptoError {
 
 pub mod ffi;
 pub mod utils;
+pub mod provider;
+
 #[cfg(feature = "x25519")]
 pub mod x25519;
 #[cfg(feature = "sha3")]

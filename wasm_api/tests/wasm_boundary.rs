@@ -4,7 +4,7 @@ use wasm_bindgen_test::*;
 use wasm_api::{
     WasmIdentityKeyPair, WasmSenderKeyContext, WasmSenderKeyReceiver, WasmSession,
 };
-use e2ee::state::{DoubleRatchetState, SessionState, SkippedKeyState};
+use e2ee::state::{DoubleRatchetState, SessionState};
 use e2ee::serialization::Serialize;
 
 

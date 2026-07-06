@@ -1,7 +1,6 @@
 use alloc::vec::Vec;
 use hybrid_crypto::utils::zeroize;
-use hybrid_crypto::x25519::{x25519, x25519_base};
-use hybrid_crypto::ml_kem::{ml_kem_768_keypair, ml_kem_768_encapsulate, ml_kem_768_decapsulate};
+use hybrid_crypto::provider::{CryptoProvider, StandardCryptoProvider as Provider};
 use hybrid_crypto::hkdf::{hkdf_extract, hkdf_expand};
 use crate::errors::E2EError;
 
@@ -20,7 +19,8 @@ pub struct SkippedKey {
 }
 
 impl SkippedKey {
-    pub fn export(&self) -> SkippedKeyState {
+    #[must_use]
+    pub const fn export(&self) -> SkippedKeyState {
         SkippedKeyState {
             peer_dh_public: self.peer_dh_public,
             message_number: self.message_number,
@@ -29,7 +29,8 @@ impl SkippedKey {
         }
     }
 
-    pub fn restore(state: &SkippedKeyState) -> Self {
+    #[must_use]
+    pub const fn restore(state: &SkippedKeyState) -> Self {
         Self {
             peer_dh_public: state.peer_dh_public,
             message_number: state.message_number,
@@ -94,10 +95,9 @@ impl DoubleRatchet {
         entropy_kem: &[u8; 64],
         entropy_kem_encaps: &[u8; 32],
     ) -> Result<(Self, [u8; 1088]), E2EError> {
-        let dh_send_private = *entropy_dh;
-        let dh_send_public = x25519_base(entropy_dh);
+        let (dh_send_public, dh_send_private) = Provider::x25519_generate_keypair(entropy_dh);
 
-        let (kem_send_public, kem_send_private) = ml_kem_768_keypair(entropy_kem);
+        let (kem_send_public, kem_send_private) = Provider::kem_generate_keypair(entropy_kem);
 
         let mut dr = Self {
             root_key,
@@ -123,6 +123,7 @@ impl DoubleRatchet {
     }
 
     /// Initialize for Bob (Responder). Bob waits for Alice's first message to advance the ratchet.
+    #[must_use]
     pub fn init_bob(
         root_key: [u8; 32],
         bob_dh_private: [u8; 32],
@@ -131,7 +132,7 @@ impl DoubleRatchet {
         Self {
             root_key,
             dh_send_private: bob_dh_private,
-            dh_send_public: x25519_base(&bob_dh_private),
+            dh_send_public: Provider::x25519_generate_keypair(&bob_dh_private).0,
             dh_recv_public: None,
             kem_send_private: bob_kem_private,
             
@@ -155,15 +156,15 @@ impl DoubleRatchet {
 
     /// Alice performs a ratchet step locally using Bob's initial public keys, producing a KEM ciphertext to send to Bob.
     /// This happens during initialization.
-    fn dh_ratchet_step_alice(&mut self, entropy_kem_encaps: &[u8; 32]) -> Result<[u8; 1088], E2EError> {
-        let bob_dh = self.dh_recv_public.ok_or(E2EError::DoubleRatchetError)?;
-        let bob_kem = self.kem_recv_public.ok_or(E2EError::DoubleRatchetError)?;
+    fn dh_ratchet_step_alice(&mut self, kem_entropy: &[u8; 32]) -> Result<[u8; 1088], E2EError> {
+        let peer_dh_public = self.dh_recv_public.ok_or(E2EError::DoubleRatchetError)?;
+        let peer_kem_public = self.kem_recv_public.ok_or(E2EError::DoubleRatchetError)?;
 
         // DH
-        let mut dh_ss = x25519(&self.dh_send_private, &bob_dh).map_err(|_| E2EError::DoubleRatchetError)?;
+        let mut dh_ss = Provider::x25519_dh(&self.dh_send_private, &peer_dh_public).map_err(|_| E2EError::DoubleRatchetError)?;
         
         // KEM Encapsulate
-        let (kem_ct, mut kem_ss) = ml_kem_768_encapsulate(&bob_kem, entropy_kem_encaps).map_err(|_| E2EError::DoubleRatchetError)?;
+        let (kem_ct, mut kem_ss) = Provider::kem_encapsulate(&peer_kem_public, kem_entropy).map_err(|_| E2EError::DoubleRatchetError)?;
 
         // Update root key and derive SEND chain key
         let mut combined = [0u8; 64];
@@ -209,10 +210,10 @@ impl DoubleRatchet {
 
         // --- Step 1: Derive RECV chain ---
         // Decapsulate the ciphertext they sent to us using our current KEM private key
-        let mut kem_ss_recv = ml_kem_768_decapsulate(&self.kem_send_private, peer_kem_ciphertext);
+        let mut kem_ss_recv = Provider::kem_decapsulate(&self.kem_send_private, peer_kem_ciphertext);
         
         // Compute DH shared secret using our current DH private key and their new DH public key
-        let mut dh_ss_recv = x25519(&self.dh_send_private, peer_dh_public).map_err(|_| E2EError::DoubleRatchetError)?;
+        let mut dh_ss_recv = Provider::x25519_dh(&self.dh_send_private, peer_dh_public).map_err(|_| E2EError::DoubleRatchetError)?;
 
         let mut combined_recv = [0u8; 64];
         combined_recv[..32].copy_from_slice(&dh_ss_recv);
@@ -227,20 +228,21 @@ impl DoubleRatchet {
 
 
         // --- Step 2: Generate our new keys ---
-        self.dh_send_private = *my_new_dh_entropy;
-        self.dh_send_public = x25519_base(my_new_dh_entropy);
+        let (dh_pub, dh_priv) = Provider::x25519_generate_keypair(my_new_dh_entropy);
+        self.dh_send_private = dh_priv;
+        self.dh_send_public = dh_pub;
 
-        let (kem_send_public, kem_send_private) = ml_kem_768_keypair(my_new_kem_entropy);
+        let (kem_send_public, kem_send_private) = Provider::kem_generate_keypair(my_new_kem_entropy);
         self.kem_send_public = kem_send_public;
         self.kem_send_private = kem_send_private;
 
 
         // --- Step 3: Derive SEND chain ---
         // Encapsulate to their new KEM public key
-        let (kem_ct_send, mut kem_ss_send) = ml_kem_768_encapsulate(peer_kem_public, my_new_kem_encaps_entropy).map_err(|_| E2EError::DoubleRatchetError)?;
+        let (kem_ct_send, mut kem_ss_send) = Provider::kem_encapsulate(peer_kem_public, my_new_kem_encaps_entropy).map_err(|_| E2EError::DoubleRatchetError)?;
         
         // Compute DH shared secret using our new DH private key and their new DH public key
-        let mut dh_ss_send = x25519(&self.dh_send_private, peer_dh_public).map_err(|_| E2EError::DoubleRatchetError)?;
+        let mut dh_ss_send = Provider::x25519_dh(&self.dh_send_private, peer_dh_public).map_err(|_| E2EError::DoubleRatchetError)?;
 
         let mut combined_send = [0u8; 64];
         combined_send[..32].copy_from_slice(&dh_ss_send);
@@ -259,9 +261,10 @@ impl DoubleRatchet {
 
     /// Step the sending symmetric chain to get a message key
     pub fn next_send_message_key(&mut self) -> Result<([u8; 32], [u8; 12]), E2EError> {
-        let chain_key = self.send_chain_key.ok_or(E2EError::DoubleRatchetError)?;
+        let mut chain_key = self.send_chain_key.ok_or(E2EError::DoubleRatchetError)?;
         let (next_chain, msg_key) = self.kdf_ck(&chain_key);
         self.send_chain_key = Some(next_chain);
+        zeroize(&mut chain_key);
         
         let mut iv = [0u8; 12];
         hkdf_expand(&msg_key, b"IV", &mut iv);
@@ -271,14 +274,19 @@ impl DoubleRatchet {
 
         self.send_msg_num += 1;
         
+        // Ensure msg_key is wiped
+        let mut mk = msg_key;
+        zeroize(&mut mk);
+        
         Ok((enc_key, iv))
     }
 
     /// Step the receiving symmetric chain to get a message key
     pub fn next_recv_message_key(&mut self) -> Result<([u8; 32], [u8; 12]), E2EError> {
-        let chain_key = self.recv_chain_key.ok_or(E2EError::DoubleRatchetError)?;
+        let mut chain_key = self.recv_chain_key.ok_or(E2EError::DoubleRatchetError)?;
         let (next_chain, msg_key) = self.kdf_ck(&chain_key);
         self.recv_chain_key = Some(next_chain);
+        zeroize(&mut chain_key);
         
         let mut iv = [0u8; 12];
         hkdf_expand(&msg_key, b"IV", &mut iv);
@@ -287,6 +295,10 @@ impl DoubleRatchet {
         hkdf_expand(&msg_key, b"Key", &mut enc_key);
 
         self.recv_msg_num += 1;
+
+        // Ensure msg_key is wiped
+        let mut mk = msg_key;
+        zeroize(&mut mk);
 
         Ok((enc_key, iv))
     }
@@ -297,11 +309,13 @@ impl DoubleRatchet {
             // Guard against excessive skips that could crash or exhaust memory
             return Err(E2EError::DoubleRatchetError);
         }
-        if let Some(chain_key) = self.recv_chain_key {
+        if let Some(mut chain_key) = self.recv_chain_key {
             let mut current_ck = chain_key;
+            zeroize(&mut chain_key);
             let dh_pub = self.dh_recv_public.ok_or(E2EError::DoubleRatchetError)?;
             while self.recv_msg_num < until {
                 let (next_ck, msg_key) = self.kdf_ck(&current_ck);
+                zeroize(&mut current_ck);
                 current_ck = next_ck;
                 
                 let mut iv = [0u8; 12];
@@ -322,6 +336,10 @@ impl DoubleRatchet {
                 });
                 
                 self.recv_msg_num += 1;
+
+                // Ensure msg_key is wiped
+                let mut mk = msg_key;
+                zeroize(&mut mk);
             }
             self.recv_chain_key = Some(current_ck);
         }
@@ -399,6 +417,9 @@ impl DoubleRatchet {
         let mut chain_key = [0u8; 32];
         hkdf_expand(&prk, b"Chain", &mut chain_key);
         
+        let mut p = prk;
+        zeroize(&mut p);
+        
         (root_key, chain_key)
     }
 
@@ -412,14 +433,21 @@ impl DoubleRatchet {
         (next_chain, hmac_key)
     }
 
-    pub fn send_msg_num(&self) -> u32 { self.send_msg_num }
-    pub fn recv_msg_num(&self) -> u32 { self.recv_msg_num }
-    pub fn prev_send_msg_num(&self) -> u32 { self.prev_send_msg_num }
+    #[must_use]
+    pub const fn send_msg_num(&self) -> u32 { self.send_msg_num }
+    #[must_use]
+    pub const fn recv_msg_num(&self) -> u32 { self.recv_msg_num }
+    #[must_use]
+    pub const fn prev_send_msg_num(&self) -> u32 { self.prev_send_msg_num }
     
-    pub fn get_dh_send_public(&self) -> [u8; 32] { self.dh_send_public }
-    pub fn get_dh_recv_public(&self) -> Option<[u8; 32]> { self.dh_recv_public }
-    pub fn get_kem_send_public(&self) -> [u8; 1184] { self.kem_send_public }
+    #[must_use]
+    pub const fn get_dh_send_public(&self) -> [u8; 32] { self.dh_send_public }
+    #[must_use]
+    pub const fn get_dh_recv_public(&self) -> Option<[u8; 32]> { self.dh_recv_public }
+    #[must_use]
+    pub const fn get_kem_send_public(&self) -> [u8; 1184] { self.kem_send_public }
 
+    #[must_use]
     pub fn export(&self) -> DoubleRatchetState {
         DoubleRatchetState {
             root_key: self.root_key,
@@ -434,11 +462,12 @@ impl DoubleRatchet {
             send_msg_num: self.send_msg_num,
             recv_msg_num: self.recv_msg_num,
             prev_send_msg_num: self.prev_send_msg_num,
-            skipped_message_keys: self.skipped_message_keys.iter().map(|k| k.export()).collect(),
+            skipped_message_keys: self.skipped_message_keys.iter().map(SkippedKey::export).collect(),
             past_dh_recv_publics: self.past_dh_recv_publics.clone(),
         }
     }
 
+    #[must_use]
     pub fn restore(state: &DoubleRatchetState) -> Self {
         Self {
             root_key: state.root_key,
@@ -453,7 +482,7 @@ impl DoubleRatchet {
             send_msg_num: state.send_msg_num,
             recv_msg_num: state.recv_msg_num,
             prev_send_msg_num: state.prev_send_msg_num,
-            skipped_message_keys: state.skipped_message_keys.iter().map(|k| SkippedKey::restore(k)).collect(),
+            skipped_message_keys: state.skipped_message_keys.iter().map(SkippedKey::restore).collect(),
             past_dh_recv_publics: state.past_dh_recv_publics.clone(),
         }
     }

@@ -36,8 +36,7 @@ impl HybridX3DH {
         let ek_a_pub = x25519_base(&ek_a);
 
         // DH1 = DH(IK_A, SPK_B)
-        let mut dh1 = x25519(&initiator_identity.ecc_private, &responder_bundle.signed_prekey_ecc_public)
-            .map_err(|_| E2EError::InvalidPreKeyBundle)?;
+        let mut dh1 = initiator_identity.ecdh(&responder_bundle.signed_prekey_ecc_public)?;
         
         // DH2 = DH(EK_A, IK_B)
         let mut dh2 = x25519(&ek_a, &responder_bundle.identity_key.ecc_public)
@@ -121,8 +120,7 @@ impl HybridX3DH {
             .map_err(|_| E2EError::InvalidPreKeyBundle)?;
         
         // DH2 = DH(IK_B, EK_A)
-        let mut dh2 = x25519(&responder_identity.ecc_private, ek_a)
-            .map_err(|_| E2EError::InvalidPreKeyBundle)?;
+        let mut dh2 = responder_identity.ecdh(ek_a)?;
         
         // DH3 = DH(SPK_B, EK_A)
         let mut dh3 = x25519(&responder_spk.ecc_private, ek_a)

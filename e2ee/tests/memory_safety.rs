@@ -1,71 +1,45 @@
 #![allow(unsafe_code)]
+extern crate alloc;
 
 #[cfg(test)]
 mod e2ee_memory_safety_tests {
-    use std::ptr;
+    
+    use e2ee::identity::SoftwareIdentityKeyPair;
+    
+    
+    
 
-    macro_rules! define_secret_struct {
-        ($name:ident, $size:expr) => {
-            struct $name {
-                data: [u8; $size],
-            }
-
-            impl $name {
-                fn new() -> Self {
-                    Self { data: [0x55; $size] }
-                }
-            }
-
-            impl Drop for $name {
-                fn drop(&mut self) {
-                    for byte in self.data.iter_mut() {
-                        unsafe { std::ptr::write_volatile(byte, 0); }
-                    }
-                }
-            }
-        };
-    }
-
-    define_secret_struct!(Session, 64);
-    define_secret_struct!(SenderKey, 32);
-    define_secret_struct!(IdentityKey, 32);
-    define_secret_struct!(Ratchet, 128);
-
-    macro_rules! test_zeroize_on_drop {
-        ($test_name:ident, $struct_name:ident) => {
-            #[test]
-            fn $test_name() {
-                let ptr;
-                {
-                    let mut secret = $struct_name::new();
-                    ptr = secret.data.as_ptr();
-                    unsafe {
-                        assert_eq!(*ptr, 0x55);
-                    }
-                } // drops naturally in place
-
-                unsafe {
-                    assert_eq!(*ptr, 0x00, stringify!($struct_name must be zeroized on drop));
-                }
-            }
-        };
-    }
-
-    test_zeroize_on_drop!(test_session_zeroize, Session);
-    test_zeroize_on_drop!(test_sender_key_zeroize, SenderKey);
-    test_zeroize_on_drop!(test_identity_key_zeroize, IdentityKey);
-    test_zeroize_on_drop!(test_ratchet_zeroize, Ratchet);
+    use hybrid_crypto::utils::ZeroizingArray;
 
     #[test]
-    fn test_use_after_free_prevention() {
+    fn test_zeroizing_array_on_drop() {
         let ptr;
         {
-            let mut key = SenderKey::new();
-            ptr = key.data.as_mut_ptr();
-        }
-        
+            let mut secret = ZeroizingArray::new([0xAA; 32]);
+            ptr = secret.as_mut_ptr();
+            unsafe {
+                assert_eq!(*ptr, 0xAA);
+            }
+        } // drops naturally in place
+
         unsafe {
-            assert_eq!(*ptr, 0x00, "UAF read must yield zeroized data, preventing secret extraction");
+            assert_eq!(*ptr, 0x00, "ZeroizingArray must be zeroized on drop");
+        }
+    }
+
+    #[test]
+    fn test_software_identity_zeroize_on_drop() {
+        let ecc_ptr;
+        {
+            let mut sw_key = SoftwareIdentityKeyPair::generate(&[0xBB; 32], &[0xBB; 32]);
+            ecc_ptr = sw_key.ecc_private.as_mut_ptr();
+            unsafe {
+                assert_eq!(*ecc_ptr, 0xBB);
+            }
+        }
+
+        unsafe {
+            assert_eq!(*ecc_ptr, 0x00, "SoftwareIdentityKeyPair ecc_private must be zeroized on drop");
         }
     }
 }

@@ -1,8 +1,8 @@
-use e2ee::{IdentityKeyPair, SenderKeyContext, SenderKeyReceiver, errors::E2EError};
+use e2ee::{IdentityKeyPair, SenderKeyContext, SenderKeyReceiver};
 
 #[test]
 fn test_sender_keys_group_creation_and_distribution() {
-    let alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
+    let _alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
     let group_id = [9; 32];
     let seed = [10; 32];
     
@@ -21,7 +21,7 @@ fn test_sender_keys_group_creation_and_distribution() {
 
 #[test]
 fn test_sender_keys_rotation_member_removal() {
-    let alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
+    let _alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
     let group_id = [9; 32];
     
     // Initial chain
@@ -49,7 +49,7 @@ fn test_sender_keys_rotation_member_removal() {
 
 #[test]
 fn test_sender_keys_impersonation_protection() {
-    let alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
+    let _alice = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
     let eve = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
     let group_id = [9; 32];
     

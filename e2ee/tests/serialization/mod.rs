@@ -1,4 +1,4 @@
-use e2ee::{IdentityKeyPair, PreKeyBundle, SignedPreKeyPair, OneTimePreKeyPair, Message, MessageHeader, serialization::Serialize, errors::E2EError, identity::IdentityPublicKey};
+use e2ee::{Message, MessageHeader, serialization::Serialize, identity::IdentityPublicKey};
 
 #[test]
 fn test_serialization_round_trip() {

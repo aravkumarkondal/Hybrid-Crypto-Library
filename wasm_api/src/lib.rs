@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 use e2ee::{
-    IdentityKeyPair, IdentityPublicKey, Session, PreKeyBundle, PreKeyMessage,
+    IdentityKeyPair, IdentityPublicKey, Session,
     SenderKeyContext, SenderKeyReceiver, SenderKeyDistributionMessage, SenderKeyMessage,
     SafetyNumber, SessionState,
 };
@@ -14,7 +14,7 @@ pub struct WasmIdentityKeyPair {
 #[wasm_bindgen]
 impl WasmIdentityKeyPair {
     #[wasm_bindgen(constructor)]
-    pub fn new(entropy_ecc: &[u8], entropy_pqc: &[u8]) -> Result<WasmIdentityKeyPair, JsValue> {
+    pub fn new(entropy_ecc: &[u8], entropy_pqc: &[u8]) -> Result<Self, JsValue> {
         if entropy_ecc.len() != 32 || entropy_pqc.len() != 32 {
             return Err(JsValue::from_str("Entropy must be exactly 32 bytes"));
         }
@@ -23,11 +23,12 @@ impl WasmIdentityKeyPair {
         let mut pqc = [0u8; 32];
         pqc.copy_from_slice(entropy_pqc);
 
-        Ok(WasmIdentityKeyPair {
+        Ok(Self {
             inner: IdentityKeyPair::generate(&ecc, &pqc),
         })
     }
 
+    #[must_use]
     pub fn public_key(&self) -> WasmIdentityPublicKey {
         WasmIdentityPublicKey {
             inner: self.inner.public_key(),
@@ -42,14 +43,15 @@ pub struct WasmIdentityPublicKey {
 
 #[wasm_bindgen]
 impl WasmIdentityPublicKey {
+    #[must_use]
     pub fn serialize(&self) -> Vec<u8> {
         self.inner.serialize()
     }
 
-    pub fn deserialize(data: &[u8]) -> Result<WasmIdentityPublicKey, JsValue> {
+    pub fn deserialize(data: &[u8]) -> Result<Self, JsValue> {
         let inner = IdentityPublicKey::deserialize(data)
             .map_err(|_| JsValue::from_str("Failed to deserialize IdentityPublicKey"))?;
-        Ok(WasmIdentityPublicKey { inner })
+        Ok(Self { inner })
     }
 }
 
@@ -60,15 +62,16 @@ pub struct WasmSession {
 
 #[wasm_bindgen]
 impl WasmSession {
+    #[must_use]
     pub fn export_state(&self) -> Vec<u8> {
         let state = self.inner.export();
         state.serialize()
     }
 
-    pub fn restore_state(data: &[u8]) -> Result<WasmSession, JsValue> {
+    pub fn restore_state(data: &[u8]) -> Result<Self, JsValue> {
         let state = SessionState::deserialize(data)
             .map_err(|_| JsValue::from_str("Failed to deserialize SessionState"))?;
-        Ok(WasmSession {
+        Ok(Self {
             inner: Session::restore(&state),
         })
     }
@@ -92,16 +95,19 @@ pub struct WasmSafetyNumber {
 #[wasm_bindgen]
 impl WasmSafetyNumber {
     #[wasm_bindgen(constructor)]
-    pub fn generate(local_id: &WasmIdentityPublicKey, remote_id: &WasmIdentityPublicKey) -> WasmSafetyNumber {
-        WasmSafetyNumber {
+    #[must_use]
+    pub fn generate(local_id: &WasmIdentityPublicKey, remote_id: &WasmIdentityPublicKey) -> Self {
+        Self {
             inner: SafetyNumber::generate(&local_id.inner, &remote_id.inner),
         }
     }
 
+    #[must_use]
     pub fn display_numeric(&self) -> String {
         self.inner.display_numeric()
     }
 
+    #[must_use]
     pub fn display_qr_code(&self) -> Vec<u8> {
         self.inner.display_qr_code().to_vec()
     }
@@ -117,7 +123,7 @@ pub struct WasmSenderKeyContext {
 #[wasm_bindgen]
 impl WasmSenderKeyContext {
     #[wasm_bindgen(constructor)]
-    pub fn new(entropy_ecc: &[u8], entropy_pqc: &[u8], group_id: &[u8], seed: &[u8], chain_id: u32) -> Result<WasmSenderKeyContext, JsValue> {
+    pub fn new(entropy_ecc: &[u8], entropy_pqc: &[u8], group_id: &[u8], seed: &[u8], chain_id: u32) -> Result<Self, JsValue> {
         if entropy_ecc.len() != 32 || entropy_pqc.len() != 32 || group_id.len() != 32 || seed.len() != 32 {
             return Err(JsValue::from_str("Invalid lengths for inputs (must be 32 bytes)"));
         }
@@ -128,11 +134,12 @@ impl WasmSenderKeyContext {
         let mut gid = [0u8; 32]; gid.copy_from_slice(group_id);
         let mut s = [0u8; 32]; s.copy_from_slice(seed);
 
-        Ok(WasmSenderKeyContext {
+        Ok(Self {
             inner: SenderKeyContext::new(identity, &gid, &s, chain_id),
         })
     }
 
+    #[must_use]
     pub fn get_distribution_message(&self) -> Vec<u8> {
         self.inner.get_distribution_message().serialize()
     }
@@ -152,10 +159,10 @@ pub struct WasmSenderKeyReceiver {
 #[wasm_bindgen]
 impl WasmSenderKeyReceiver {
     #[wasm_bindgen(constructor)]
-    pub fn from_distribution_message(data: &[u8]) -> Result<WasmSenderKeyReceiver, JsValue> {
+    pub fn from_distribution_message(data: &[u8]) -> Result<Self, JsValue> {
         let msg = SenderKeyDistributionMessage::deserialize(data)
             .map_err(|_| JsValue::from_str("Failed to deserialize SenderKeyDistributionMessage"))?;
-        Ok(WasmSenderKeyReceiver {
+        Ok(Self {
             inner: SenderKeyReceiver::from_distribution_message(&msg),
         })
     }

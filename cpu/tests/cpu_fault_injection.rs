@@ -1,3 +1,4 @@
+#![allow(unsafe_code)]
 use cpu::ml_dsa_simd::poly_add_simd;
 use std::thread;
 use std::sync::atomic::{AtomicI32, Ordering};

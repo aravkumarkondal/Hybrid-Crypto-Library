@@ -1,11 +1,12 @@
 use alloc::vec::Vec;
 use crate::ratchet::DoubleRatchet;
-use crate::identity::IdentityKeyPair;
+use crate::identity::{IdentityKeyPair, IdentityPublicKey};
 use crate::prekeys::{PreKeyBundle, SignedPreKeyPair, OneTimePreKeyPair};
 use crate::x3dh::{HybridX3DH};
 use crate::messages::{Message, MessageHeader, PreKeyMessage};
 use crate::errors::E2EError;
 use crate::state::SessionState;
+use crate::serialization::Serialize;
 
 #[derive(Clone)]
 pub struct Session {
@@ -73,8 +74,8 @@ impl Session {
         let prekey_message = PreKeyMessage {
             prekey_id: peer_bundle.one_time_prekey_id,
             signed_prekey_id: peer_bundle.signed_prekey_id,
-            initiator_identity_ecc_public: my_identity.ecc_public,
-            initiator_identity_pqc_public: my_identity.pqc_public.clone(),
+            initiator_identity_ecc_public: my_identity.public_key().ecc_public,
+            initiator_identity_pqc_public: my_identity.public_key().pqc_public,
             initiator_ephemeral_ecc_public: x3dh_out.initiator_ecc_ephemeral_public,
             pqc_ciphertext_spk: x3dh_out.pqc_ciphertext_spk,
             pqc_ciphertext_opk: x3dh_out.pqc_ciphertext_opk,
@@ -84,7 +85,7 @@ impl Session {
         Ok((Self { ratchet, pending_kem_ciphertext: None }, prekey_message, initial_message))
     }
 
-    /// Setup a new session as the Responder (Bob) upon receiving a PreKeyMessage
+    /// Setup a new session as the Responder (Bob) upon receiving a `PreKeyMessage`
     pub fn setup_as_responder(
         my_identity: &IdentityKeyPair,
         my_spk: &SignedPreKeyPair,
@@ -177,6 +178,7 @@ impl Session {
         Ok(plaintext)
     }
 
+    #[must_use]
     pub fn export(&self) -> SessionState {
         SessionState::new(
             self.ratchet.export(),
@@ -184,6 +186,7 @@ impl Session {
         )
     }
 
+    #[must_use]
     pub fn restore(state: &SessionState) -> Self {
         Self {
             ratchet: DoubleRatchet::restore(&state.ratchet),
@@ -191,3 +194,109 @@ impl Session {
         }
     }
 }
+
+/// A collection of sessions representing connections to multiple devices of a single contact.
+#[derive(Clone)]
+pub struct MultiDeviceSession {
+    pub account_identity: IdentityPublicKey,
+    pub sessions: Vec<(u32, Session)>,
+}
+
+impl MultiDeviceSession {
+    #[must_use]
+    pub const fn new(account_identity: IdentityPublicKey) -> Self {
+        Self {
+            account_identity,
+            sessions: Vec::new(),
+        }
+    }
+
+    pub fn add_session(&mut self, device_id: u32, session: Session) {
+        // Replace if exists
+        if let Some(existing) = self.sessions.iter_mut().find(|(id, _)| *id == device_id) {
+            existing.1 = session;
+        } else {
+            self.sessions.push((device_id, session));
+        }
+    }
+
+    pub fn get_session_mut(&mut self, device_id: u32) -> Option<&mut Session> {
+        self.sessions.iter_mut().find(|(id, _)| *id == device_id).map(|(_, s)| s)
+    }
+    
+    #[must_use]
+    pub fn get_session(&self, device_id: u32) -> Option<&Session> {
+        self.sessions.iter().find(|(id, _)| *id == device_id).map(|(_, s)| s)
+    }
+
+    pub fn remove_session(&mut self, device_id: u32) {
+        self.sessions.retain(|(id, _)| *id != device_id);
+    }
+}
+
+impl Serialize for MultiDeviceSession {
+    fn serialize(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let identity_bytes = self.account_identity.serialize();
+        out.extend_from_slice(&(identity_bytes.len() as u32).to_le_bytes());
+        out.extend_from_slice(&identity_bytes);
+
+        out.extend_from_slice(&(self.sessions.len() as u32).to_le_bytes());
+        for (device_id, session) in &self.sessions {
+            out.extend_from_slice(&device_id.to_le_bytes());
+            
+            let state = session.export();
+            let session_bytes = state.serialize();
+            out.extend_from_slice(&(session_bytes.len() as u32).to_le_bytes());
+            out.extend_from_slice(&session_bytes);
+        }
+
+        out
+    }
+
+    fn deserialize(data: &[u8]) -> Result<Self, E2EError> {
+        let mut offset = 0;
+        if offset + 4 > data.len() { return Err(E2EError::InvalidMessageFormat); }
+        let mut b = [0u8; 4];
+        b.copy_from_slice(&data[offset..offset+4]);
+        let id_len = u32::from_le_bytes(b) as usize;
+        offset += 4;
+
+        if offset + id_len > data.len() { return Err(E2EError::InvalidMessageFormat); }
+        let account_identity = IdentityPublicKey::deserialize(&data[offset..offset+id_len])?;
+        offset += id_len;
+
+        if offset + 4 > data.len() { return Err(E2EError::InvalidMessageFormat); }
+        b.copy_from_slice(&data[offset..offset+4]);
+        let sessions_len = u32::from_le_bytes(b) as usize;
+        offset += 4;
+
+        // Arbitrary limit to prevent DoS
+        if sessions_len > 1000 { return Err(E2EError::InvalidMessageFormat); }
+
+        let mut sessions = Vec::with_capacity(sessions_len);
+        for _ in 0..sessions_len {
+            if offset + 4 > data.len() { return Err(E2EError::InvalidMessageFormat); }
+            b.copy_from_slice(&data[offset..offset+4]);
+            let device_id = u32::from_le_bytes(b);
+            offset += 4;
+
+            if offset + 4 > data.len() { return Err(E2EError::InvalidMessageFormat); }
+            b.copy_from_slice(&data[offset..offset+4]);
+            let session_bytes_len = u32::from_le_bytes(b) as usize;
+            offset += 4;
+
+            if offset + session_bytes_len > data.len() { return Err(E2EError::InvalidMessageFormat); }
+            let state = SessionState::deserialize(&data[offset..offset+session_bytes_len])?;
+            let session = Session::restore(&state);
+            sessions.push((device_id, session));
+            offset += session_bytes_len;
+        }
+
+        Ok(Self {
+            account_identity,
+            sessions,
+        })
+    }
+}
+

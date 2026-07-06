@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 use hybrid_crypto::aes_gcm::{aes256_gcm_encrypt, aes256_gcm_decrypt};
 use crate::errors::E2EError;
+use crate::payload::MessagePayload;
 
 #[derive(Clone, Debug)]
 pub struct MessageHeader {
@@ -19,6 +20,7 @@ pub struct Message {
 }
 
 impl Message {
+    #[must_use]
     pub fn encrypt(
         key: &[u8; 32],
         iv: &[u8; 12],
@@ -67,6 +69,25 @@ impl Message {
         ).map_err(|_| E2EError::MessageDecryptionFailed)?;
 
         Ok(plaintext.0.clone())
+    }
+
+    /// Decrypts a message and parses it as a `MessagePayload`, validating expiration.
+    pub fn decrypt_payload(
+        &self,
+        key: &[u8; 32],
+        iv: &[u8; 12],
+        current_time: u64,
+    ) -> Result<MessagePayload, E2EError> {
+        let plaintext = self.decrypt(key, iv)?;
+        let payload = MessagePayload::deserialize(&plaintext)?;
+        
+        if let Some(exp) = payload.expires_at {
+            if current_time >= exp {
+                return Err(E2EError::MessageExpired);
+            }
+        }
+        
+        Ok(payload)
     }
 }
 

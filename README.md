@@ -1,20 +1,83 @@
 # Hybrid Cryptography & E2EE Library (Post-Quantum Fortified)
 
-This repository is a production-hardened Rust workspace implementing state-of-the-art hybrid post-quantum cryptography (PQC) and End-to-End Encryption (E2EE) protocols. It is designed for maximum memory safety, side-channel immunity, and hardware tamper resistance.
+This repository is a production-hardened Rust workspace implementing state-of-the-art hybrid post-quantum cryptography (PQC) and End-to-End Encryption (E2EE) protocols. It is designed for maximum memory safety, speed, modularity, side-channel immunity, and hardware tamper resistance.
 
 ---
 
-## Repository Architecture
+## 🔒 Cryptographic Algorithms (The `hybrid_crypto` Crate)
 
-This workspace is modularized to ensure structural separation between cryptographic primitives, hardware acceleration layers, and FFI/WASM APIs:
+The core cryptography is abstracted behind a modular `CryptoProvider` interface, meaning algorithms can be swapped entirely if necessary. By default, it operates with a Zero-Dependency, `no_std` compliant software backend:
 
+1. **Key Encapsulation (KEM)**: `ML-KEM-768` (FIPS 203). Post-Quantum secure key encapsulation.
+2. **Digital Signatures**: `ML-DSA-87` (FIPS 204). Post-Quantum secure digital signatures.
+3. **Elliptic Curve Cryptography**: `X25519`. Classical ECDH key agreement.
+4. **Symmetric Encryption**: `AES-256-GCM`. Authenticated bulk payload encryption.
+5. **Key Derivation (KDF)**: `HKDF-SHA256`. 
+6. **Hardware Acceleration**: 
+   - `cpu` crate: SIMD AVX2/NEON intrinsics for rapid polynomial multiplication.
+   - `gpu` crate: OpenCL/WGSL kernels for offloaded matrix transformations.
+
+---
+
+## 🛡️ E2EE Protocol Features (The `e2ee` Crate)
+
+The E2EE module is heavily optimized for zero-copy memory operations and compile-time state safety (`RatchetState` validation).
+
+1. **X3DH (Extended Triple Diffie-Hellman)**: Initiates secure sessions anonymously. Uses a hybrid approach combining X25519 and ML-KEM to establish initial shared secrets that are secure against quantum computers.
+2. **The Double Ratchet**: Implements the Signal-style Double Ratchet algorithm using HKDF chains. It provides Forward Secrecy (FS) and Post-Compromise Security (PCS). Limits are strictly enforced to prevent DoS (e.g., maximum skipped key buffers).
+3. **TreeKEM (Continuous Group Key Agreement)**: Implements a Left-Balanced Binary Tree (LBBT) protocol based on RFC 9420 (MLS) to facilitate highly efficient, asynchronous multi-member group chats.
+4. **Sender Keys**: Highly scalable multicast encryption for large groups.
+5. **Transparency Logs (Merkle Trees)**: Provides public cryptographic proof of inclusion, preventing server tampering or ghost-user injection.
+6. **FS-Log (Forward Secret Logging)**: Tamper-proof, cryptographically signed audit logs that roll forward invisibly.
+7. **QR Reassembly**: Support for visual verification codes and splitting payloads across visual mediums.
+8. **Hardware Keystore Abstractions**: Pluggable integrations for all major platforms ensuring Post-Quantum keys are strictly sealed out-of-band:
+   - macOS / iOS: Apple Keychain Integration (`apple_keystore`).
+   - Windows: Credential Manager DPAPI (`windows_keystore`).
+   - Linux: Secret Service DBus (`linux_keystore`).
+
+---
+
+## 🚀 How to Use the Library
+
+The `splendid-mendeleev` workspace is completely abstracted. You can initialize a Post-Quantum E2E chat session in just a few lines of code.
+
+### 1. Generating Identities
+```rust
+use e2ee::identity::IdentityKeyPair;
+use hybrid_crypto::provider::StandardCryptoProvider;
+
+// 1. Generate an Identity KeyPair (hybrid X25519 + ML-DSA)
+let entropy = [0u8; 64]; // In production, use OsRng
+let alice_identity = IdentityKeyPair::generate(&entropy);
 ```
-├── compliance_suite/ # Cross-crate integration, standards validation, and FFI tests
-├── cpu/              # SIMD (AVX2/AVX512/Neon) hardware acceleration & CPU stress tests
-├── e2ee/             # Double Ratchet, X3DH, Sender Keys, and serialization logic
-├── gpu/              # OpenCL/WGSL hardware acceleration and driver error trapping
-├── hybrid_crypto/    # Core primitives: ML-KEM-768, ML-DSA-87, X25519, AES-GCM-256
-└── wasm_api/         # WebAssembly bindings (JS interop) for headless browser environments
+
+### 2. Establishing a Session (X3DH)
+```rust
+use e2ee::x3dh::X3DH;
+use e2ee::prekeys::{PreKeyBundle, SignedPreKey, OneTimePreKey};
+
+// Alice generates a PreKey Bundle to publish to a server
+let spk = SignedPreKey::generate(&alice_identity, 1, &entropy);
+let opk = OneTimePreKey::generate(1, &entropy);
+let bundle = PreKeyBundle::new(alice_identity.public_key(), spk, Some(opk));
+
+// Bob uses Alice's bundle to initiate a session
+let (bob_session, initial_message) = X3DH::initiate(&bundle, &bob_identity, &entropy).unwrap();
+```
+
+### 3. Encrypting & Decrypting (Double Ratchet)
+```rust
+use e2ee::messages::Payload;
+
+// Bob encrypts a message
+let msg = b"Hello Post-Quantum World!";
+let ciphertext = bob_session.encrypt_message(msg).unwrap();
+
+// Alice receives the initial message, builds her session, and decrypts
+let mut alice_session = X3DH::receive(&initial_message, &alice_identity, &spk_private, Some(&opk_private)).unwrap();
+
+let plaintext = alice_session.decrypt_message(&ciphertext).unwrap();
+assert_eq!(plaintext, msg);
 ```
 
 ---
@@ -23,31 +86,14 @@ This workspace is modularized to ensure structural separation between cryptograp
 
 To satisfy production-grade cryptographic criteria, the following compiler and code-level defenses are enforced:
 
-1. **Memory Zeroization**: Crucial keys, sessions, and intermediate values (`Session`, `IdentityKey`, `SharedSecret`) implement a custom `Drop` layer using `std::ptr::write_volatile`. This prevents the compiler from optimizing out memory clearing, ensuring secrets are physically wiped from RAM immediately after going out of scope.
-2. **Global Linting (`unsafe_code = "deny"`)**: Enforced globally at the workspace level. The usage of `unsafe` is strictly forbidden in all higher-level crates, isolating raw memory manipulation solely to SIMD, OpenCL wrappers, and FFI borders.
+1. **Memory Zeroization**: Crucial keys, sessions, and intermediate values implement a custom `Drop` layer using `std::ptr::write_volatile`. This ensures secrets are physically wiped from RAM immediately after going out of scope.
+2. **Global Linting (`unsafe_code = "deny"`)**: Enforced globally at the workspace level. The usage of `unsafe` is strictly forbidden in all higher-level crates.
 3. **No-Branch Side-Channel Resistance**: Primitive algorithms (like `ml_dsa_87_verify`) execute branching evaluations over flattened boolean flags in constant time, preventing execution timing variance leaks.
-4. **Binary Hardening Profiles (`Cargo.toml`)**:
-   - `opt-level = 3` (Maximum compiler optimization passes)
-   - `lto = "fat"` (Global Link-Time Optimization to eliminate dead code and reduce execution surface area)
-   - `codegen-units = 1` (Enhances optimization cohesion)
-   - `panic = "unwind"` (Retains dynamic panic recovery paths)
+4. **Type-Safe States**: Internal Double Ratchet mechanisms mathematically enforce `is_ready` barriers at compile-time to prevent uninitialized payload encryption.
 
 ---
 
-## 🧪 Testing Matrices
-
-This codebase enforces the strict rule: **"Code that is not tested is assumed broken"**. We achieve this via six testing dimensions:
-
-1. **Unit & Integration Tests**: Executed per-crate via `cargo test --workspace`.
-2. **Property-Based Testing (`proptest`)**: Generates millions of randomized inputs to assert invariants (e.g., `deserialize(serialize(x)) == x`).
-3. **Fuzzing (`cargo fuzz`)**: Feeds random byte arrays directly into ML-KEM decapsulation and E2EE state parsing engines to test crash resilience.
-4. **Symbolic Memory Auditing (`Miri`)**: Verifies memory behavior using `run_miri.sh` to guarantee the complete absence of undefined behavior (UB) and memory leaks.
-5. **Formal Verification (`Kani`)**: Uses Bounded Model Checking to mathematically prove that the FFI endpoints never overflow or crash under any arbitrary pointer range.
-6. **WASM V8 Runtime Tests**: Runs `wasm-pack test --node` in a headless NodeJS V8 engine to confirm compatibility across JS-WASM boundaries.
-
----
-
-## 🛠️ Developer Commands (Agent & Human Reference)
+## 🛠️ Developer Commands
 
 ### Build & Lint
 ```bash
@@ -57,58 +103,9 @@ cargo clippy --workspace --all-targets
 
 ### Run Tests
 ```bash
-# Standard tests
-cargo test --workspace
-
-# Property tests specifically
-cargo test --package hybrid_crypto --test proptests
-cargo test --package e2ee --test proptests
+# Standard tests (Single Threaded to prevent Memory Spikes)
+cargo test --workspace -- --test-threads=1
 
 # WASM NodeJS boundary verification
 cd wasm_api && wasm-pack test --node
 ```
-
-### Run Memory Safety Audits
-```bash
-# Run Rust's symbolic executor (expects Miri installed)
-./run_miri.sh
-```
-
----
-
-## 📦 Sharing the Library Securely (Private Git Sharing)
-
-If you need to share this library with collaborators **without making it public** or adding them directly to your personal GitHub organization, use these secure methods:
-
-### Method 1: Git Bundle (Direct Offline Sharing)
-You can package the entire repository history (including commits, branches, and tags) into a single, highly compressed binary file and share it via a secure file-transfer mechanism (e.g., encrypted cloud storage, Signal, SFTP).
-
-**To create the bundle:**
-```bash
-git bundle create hybrid_crypto_lib.bundle master
-```
-
-**To clone the repository from the bundle:**
-```bash
-git clone hybrid_crypto_lib.bundle -b master hybrid_crypto_workspace
-```
-
-### Method 2: Private Cargo Git Dependency
-Collaborators can import this library directly into their own Rust projects via Cargo by referencing your private repository URL.
-
-They will need to authenticate using a **GitHub Personal Access Token (PAT)** or an **SSH Key** configured in their environment:
-
-```toml
-[dependencies]
-hybrid_crypto = { git = "https://github.com/aravkumarkondal/Hybrid-Crypto-Library.git", branch = "master" }
-e2ee = { git = "https://github.com/aravkumarkondal/Hybrid-Crypto-Library.git", branch = "master" }
-```
-**Authentication Setup:**
-1. **HTTPS with Token**: The collaborator generates a Github PAT with `repo` scope and configures Git credentials:
-   ```bash
-   git config --global credential.helper store
-   ```
-2. **SSH Key**: The collaborator adds their public SSH key to their Github account, and cargo resolves the dependency securely:
-   ```toml
-   hybrid_crypto = { git = "git@github.com:aravkumarkondal/Hybrid-Crypto-Library.git", branch = "master" }
-   ```

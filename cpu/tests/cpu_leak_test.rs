@@ -11,7 +11,7 @@ fn test_cpu_memory_bounds_and_leaks() {
     
     for i in 0..10_000 {
         let mut poly = [0i32; 256];
-        poly[0] = i as i32;
+        poly[0] = i;
         large_buffer.push(poly);
     }
     
@@ -24,7 +24,7 @@ fn test_cpu_memory_bounds_and_leaks() {
         for j in 0..256 {
             let q = 8380417;
             let sum = a[j].wrapping_add(b[j]);
-            let v = ((sum as i64 * 8396807) >> 46) as i32;
+            let v = ((i64::from(sum) * 8396807) >> 46) as i32;
             let mut t = sum - v * q;
             if t < 0 { t += q; } else if t >= q { t -= q; }
             a[j] = t;

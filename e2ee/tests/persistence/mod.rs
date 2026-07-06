@@ -1,4 +1,4 @@
-use e2ee::{IdentityKeyPair, PreKeyBundle, SignedPreKeyPair, OneTimePreKeyPair, Session, errors::E2EError, SessionState, serialization::Serialize};
+use e2ee::{IdentityKeyPair, PreKeyBundle, SignedPreKeyPair, OneTimePreKeyPair, Session, serialization::Serialize};
 
 fn setup_sessions() -> (Session, Session) {
     let alice_id = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
@@ -49,7 +49,7 @@ fn test_persistence_save_restore_during_ratchet() {
 
 #[test]
 fn test_persistence_corrupted_state() {
-    let (mut alice, mut bob) = setup_sessions();
+    let (_alice, bob) = setup_sessions();
     let mut bob_state_bytes = bob.export().serialize();
 
     // Corrupt byte 100

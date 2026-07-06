@@ -9,6 +9,7 @@ pub struct SafetyNumber {
 }
 
 impl SafetyNumber {
+    #[must_use]
     pub fn generate(local_id: &IdentityPublicKey, remote_id: &IdentityPublicKey) -> Self {
         let mut bytes1 = Vec::new();
         bytes1.extend_from_slice(&local_id.ecc_public);
@@ -30,23 +31,25 @@ impl SafetyNumber {
         Self { fingerprint }
     }
 
+    #[must_use]
     pub fn display_numeric(&self) -> String {
         let mut s = String::with_capacity(65);
         for i in 0..6 {
             let offset = i * 5;
             let mut val = 0u64;
             for j in 0..5 {
-                val = (val << 8) | (self.fingerprint[offset + j] as u64);
+                val = (val << 8) | u64::from(self.fingerprint[offset + j]);
             }
             // Modulo 10^10 guarantees it fits in 10 digits
             let chunk = val % 10_000_000_000;
-            write!(&mut s, "{:010} ", chunk).unwrap();
+            write!(&mut s, "{chunk:010} ").unwrap();
         }
         s.pop(); // remove trailing space
         s
     }
 
-    pub fn display_qr_code(&self) -> [u8; 32] {
+    #[must_use]
+    pub const fn display_qr_code(&self) -> [u8; 32] {
         self.fingerprint
     }
 }

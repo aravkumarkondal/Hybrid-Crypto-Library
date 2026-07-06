@@ -29,13 +29,13 @@ int fqmul(int a, int b) {
 
 // OpenCL Kernel for batched NTT transforms
 // Global size should be (num_polynomials, 128)
-__attribute__((reqd_work_group_size(128, 1, 1)))
+__attribute__((reqd_work_group_size(1, 128, 1)))
 __kernel void ntt_batched(
     __global int *poly_array,
     __constant int *zetas
 ) {
-    int thread_id = get_global_id(0);
-    int poly_idx = get_global_id(1); // 0 to 127
+    int poly_idx = get_global_id(0); // 0 to num_polys - 1
+    int thread_id = get_global_id(1); // 0 to 127
     
     __global int *p = &poly_array[poly_idx * 256];
     
@@ -71,13 +71,13 @@ __kernel void ntt_batched(
 }
 
 // OpenCL Kernel for batched INTT transforms
-__attribute__((reqd_work_group_size(128, 1, 1)))
+__attribute__((reqd_work_group_size(1, 128, 1)))
 __kernel void intt_batched(
     __global int *poly_array,
     __constant int *zetas
 ) {
-    int thread_id = get_global_id(0);
-    int poly_idx = get_global_id(1);
+    int poly_idx = get_global_id(0);
+    int thread_id = get_global_id(1); // 0 to 127
     
     __global int *p = &poly_array[poly_idx * 256];
     

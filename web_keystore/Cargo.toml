@@ -1,0 +1,13 @@
+[package]
+name = "web_keystore"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+e2ee = { path = "../e2ee" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.87"
+js-sys = "0.3.64"
+web-sys = { version = "0.3.64", features = ["Crypto", "SubtleCrypto", "CryptoKey", "Window", "IdbDatabase", "IdbObjectStore", "IdbTransaction", "IdbRequest", "IdbFactory"] }
+hybrid_crypto = { path = "../hybrid_crypto" }

@@ -1,0 +1,14 @@
+[package]
+name = "apple_keystore"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = "0.22.1"
+e2ee = { path = "../e2ee" }
+keyring = "4.1.3"
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+security-framework = "2.9.2"
+core-foundation = "0.9.3"
+hybrid_crypto = { path = "../hybrid_crypto" }

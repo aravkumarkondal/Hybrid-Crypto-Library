@@ -8,11 +8,11 @@ fn test_e2ee_message_replay_attack() {
     let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
     
     let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-    let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
-    let bob_opk = OneTimePreKeyPair::generate(1, &[0x41; 32], &[0x42; 64]);
+    let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
+    let bob_opk = futures::executor::block_on(OneTimePreKeyPair::generate(1, &[0x41; 32], &[0x42; 64]));
     
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_identity.public_key(),
+        identity_key: futures::executor::block_on(bob_identity.public_key()),
         signed_prekey_id: bob_spk.id,
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public,
@@ -26,7 +26,7 @@ fn test_e2ee_message_replay_attack() {
         &alice_identity, &bob_bundle, &[0x51; 32], &[0x52; 32], Some(&[0x53; 32]), &[0x54; 32], &[0x55; 64], &[0x56; 32]
     ).unwrap();
     
-    let mut bob_session = Session::setup_as_responder(&bob_identity, &bob_spk, Some(&bob_opk), &prekey_msg).unwrap();
+    let mut bob_session = futures::executor::block_on(Session::setup_as_responder(&bob_identity, &bob_spk, Some(&bob_opk), &prekey_msg)).unwrap();
     
     // Bob receives the initial message
     bob_session.receive_initial_message(&initial_msg, &[0x61; 32], &[0x62; 64], &[0x63; 32]).unwrap();
@@ -49,10 +49,10 @@ fn test_e2ee_message_replay_attack() {
 fn test_e2ee_forward_secrecy_compromise() {
     let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
     let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-    let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+    let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
     
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_identity.public_key(),
+        identity_key: futures::executor::block_on(bob_identity.public_key()),
         signed_prekey_id: bob_spk.id,
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public,
@@ -66,7 +66,7 @@ fn test_e2ee_forward_secrecy_compromise() {
         &alice_identity, &bob_bundle, &[0x51; 32], &[0x52; 32], None, &[0x54; 32], &[0x55; 64], &[0x56; 32]
     ).unwrap();
     
-    let mut bob_session = Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg).unwrap();
+    let mut bob_session = futures::executor::block_on(Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg)).unwrap();
     bob_session.receive_initial_message(&initial_msg, &[0x61; 32], &[0x62; 64], &[0x63; 32]).unwrap();
     
     let pt1 = b"Secret message 1";
@@ -87,10 +87,10 @@ fn test_e2ee_forward_secrecy_compromise() {
 fn test_e2ee_post_compromise_security_healing() {
     let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
     let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-    let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+    let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
     
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_identity.public_key(),
+        identity_key: futures::executor::block_on(bob_identity.public_key()),
         signed_prekey_id: bob_spk.id,
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public,
@@ -104,7 +104,7 @@ fn test_e2ee_post_compromise_security_healing() {
         &alice_identity, &bob_bundle, &[0x51; 32], &[0x52; 32], None, &[0x54; 32], &[0x55; 64], &[0x56; 32]
     ).unwrap();
     
-    let mut bob_session = Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg).unwrap();
+    let mut bob_session = futures::executor::block_on(Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg)).unwrap();
     bob_session.receive_initial_message(&initial_msg, &[0x61; 32], &[0x62; 64], &[0x63; 32]).unwrap();
     
     let msg1 = bob_session.encrypt_message(b"Hi Alice").unwrap();

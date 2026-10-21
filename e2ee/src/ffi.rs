@@ -14,6 +14,48 @@ pub const E2EE_MLKEM768_PUBLIC_BYTES: usize = 1184;
 pub const E2EE_MLKEM768_PRIVATE_BYTES: usize = 2400;
 pub const E2EE_MLDSA87_SIGNATURE_BYTES: usize = 4627;
 
+use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use core::future::Future;
+use core::pin::Pin;
+
+unsafe fn raw_waker_clone(_: *const ()) -> RawWaker {
+    RawWaker::new(core::ptr::null(), &VTABLE)
+}
+unsafe fn raw_waker_wake(_: *const ()) {}
+unsafe fn raw_waker_wake_by_ref(_: *const ()) {}
+unsafe fn raw_waker_drop(_: *const ()) {}
+
+static VTABLE: RawWakerVTable = RawWakerVTable::new(
+    raw_waker_clone,
+    raw_waker_wake,
+    raw_waker_wake_by_ref,
+    raw_waker_drop,
+);
+
+#[doc(hidden)]
+pub fn try_block_on<F: Future>(mut f: F) -> Result<F::Output, ()> {
+    let mut f = unsafe { Pin::new_unchecked(&mut f) };
+    let waker = unsafe { Waker::from_raw(RawWaker::new(core::ptr::null(), &VTABLE)) };
+    let mut cx = Context::from_waker(&waker);
+    match f.as_mut().poll(&mut cx) {
+        Poll::Ready(val) => Ok(val),
+        Poll::Pending => Err(()),
+    }
+}
+
+#[doc(hidden)]
+pub fn block_on<F: Future>(mut f: F) -> F::Output {
+    let mut f = unsafe { Pin::new_unchecked(&mut f) };
+    let waker = unsafe { Waker::from_raw(RawWaker::new(core::ptr::null(), &VTABLE)) };
+    let mut cx = Context::from_waker(&waker);
+    loop {
+        match f.as_mut().poll(&mut cx) {
+            Poll::Ready(val) => return val,
+            Poll::Pending => panic!("block_on yielded!"),
+        }
+    }
+}
+
 /// Destroys a session and deallocates its memory.
 /// # Safety
 /// The pointer must be valid and previously allocated by the FFI initiator/responder setups.
@@ -51,7 +93,10 @@ pub unsafe extern "C" fn e2ee_identity_generate(
     };
     core::ptr::copy_nonoverlapping(priv_bytes.as_ptr(), ecc_priv_out, 32);
     
-    let pub_key = id_key.public_key();
+    let pub_key = match try_block_on(id_key.public_key()) {
+        Ok(pk) => pk,
+        Err(_) => return -1,
+    };
     core::ptr::copy_nonoverlapping(pub_key.ecc_public.as_ptr(), ecc_pub_out, 32);
     
     let sk_bytes = match &id_key {
@@ -110,8 +155,8 @@ pub unsafe extern "C" fn e2ee_signed_prekey_generate(
         pqc_public,
     });
 
-    match SignedPreKeyPair::generate(id, entropy_ecc, entropy_pqc, &id_key, sign_rnd) {
-        Ok(spk) => {
+    match try_block_on(SignedPreKeyPair::generate(id, entropy_ecc, entropy_pqc, &id_key, sign_rnd)) {
+        Ok(Ok(spk)) => {
             core::ptr::copy_nonoverlapping(spk.ecc_private.as_ptr(), ecc_priv_out, 32);
             core::ptr::copy_nonoverlapping(spk.ecc_public.as_ptr(), ecc_pub_out, 32);
             core::ptr::copy_nonoverlapping(spk.pqc_private.as_ptr(), pqc_priv_out, 2400);
@@ -119,6 +164,7 @@ pub unsafe extern "C" fn e2ee_signed_prekey_generate(
             core::ptr::copy_nonoverlapping(spk.signature.as_ptr(), sig_out, spk.signature.len());
             0
         }
+        Ok(Err(_)) => -1,
         Err(_) => -1,
     }
 }
@@ -212,7 +258,7 @@ pub unsafe extern "C" fn e2ee_session_create_initiator(
     let ratchet_entropy_kem = &*ratchet_entropy_kem_ptr.cast::<[u8; 64]>();
     let ratchet_entropy_kem_encaps = &*ratchet_entropy_kem_encaps_ptr.cast::<[u8; 32]>();
 
-    match Session::setup_as_initiator(
+    match try_block_on(Session::setup_as_initiator(
         &my_identity,
         &peer_bundle,
         entropy_ecc_ephem,
@@ -221,8 +267,8 @@ pub unsafe extern "C" fn e2ee_session_create_initiator(
         ratchet_entropy_dh,
         ratchet_entropy_kem,
         ratchet_entropy_kem_encaps,
-    ) {
-        Ok((session, prekey_msg, initial_msg)) => {
+    )) {
+        Ok(Ok((session, prekey_msg, initial_msg))) => {
             let serialized_prekey = prekey_msg.serialize();
             let serialized_initial = initial_msg.serialize();
             
@@ -242,7 +288,7 @@ pub unsafe extern "C" fn e2ee_session_create_initiator(
             
             Box::into_raw(Box::new(session))
         }
-        Err(_) => core::ptr::null_mut(),
+        _ => core::ptr::null_mut(),
     }
 }
 
@@ -336,9 +382,9 @@ pub unsafe extern "C" fn e2ee_session_create_responder(
         })
     };
 
-    match Session::setup_as_responder(&my_identity, &my_spk, my_opk.as_ref(), &prekey_msg) {
-        Ok(session) => Box::into_raw(Box::new(session)),
-        Err(_) => core::ptr::null_mut(),
+    match try_block_on(Session::setup_as_responder(&my_identity, &my_spk, my_opk.as_ref(), &prekey_msg)) {
+        Ok(Ok(session)) => Box::into_raw(Box::new(session)),
+        _ => core::ptr::null_mut(),
     }
 }
 

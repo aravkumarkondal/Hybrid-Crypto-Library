@@ -26,9 +26,11 @@ impl Message {
         iv: &[u8; 12],
         header: MessageHeader,
         plaintext: &[u8],
+        ad_prefix: &[u8],
     ) -> Self {
         // Associated Data is the serialized header
-        let mut ad = Vec::with_capacity(32 + 1184 + 1088 + 4 + 4);
+        let mut ad = Vec::with_capacity(ad_prefix.len() + 32 + 1184 + 1088 + 4 + 4);
+        ad.extend_from_slice(ad_prefix);
         ad.extend_from_slice(&header.dh_public);
         ad.extend_from_slice(&header.kem_public);
         ad.extend_from_slice(&header.kem_ciphertext);
@@ -49,8 +51,10 @@ impl Message {
         &self,
         key: &[u8; 32],
         iv: &[u8; 12],
-    ) -> Result<Vec<u8>, E2EError> {
-        let mut ad = Vec::with_capacity(32 + 1184 + 1088 + 4 + 4);
+        ad_prefix: &[u8],
+    ) -> Result<hybrid_crypto::utils::SecretKey, E2EError> {
+        let mut ad = Vec::with_capacity(ad_prefix.len() + 32 + 1184 + 1088 + 4 + 4);
+        ad.extend_from_slice(ad_prefix);
         ad.extend_from_slice(&self.header.dh_public);
         ad.extend_from_slice(&self.header.kem_public);
         ad.extend_from_slice(&self.header.kem_ciphertext);
@@ -68,7 +72,7 @@ impl Message {
             &mut plaintext,
         ).map_err(|_| E2EError::MessageDecryptionFailed)?;
 
-        Ok(plaintext.0.clone())
+        Ok(plaintext)
     }
 
     /// Decrypts a message and parses it as a `MessagePayload`, validating expiration.
@@ -78,7 +82,7 @@ impl Message {
         iv: &[u8; 12],
         current_time: u64,
     ) -> Result<MessagePayload, E2EError> {
-        let plaintext = self.decrypt(key, iv)?;
+        let plaintext = self.decrypt(key, iv, &[])?;
         let payload = MessagePayload::deserialize(&plaintext)?;
         
         if let Some(exp) = payload.expires_at {

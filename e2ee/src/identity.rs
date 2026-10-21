@@ -31,7 +31,7 @@ impl Drop for SoftwareIdentityKeyPair {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentityPublicKey {
     pub ecc_public: [u8; 32],
     pub pqc_public: Vec<u8>,
@@ -70,31 +70,36 @@ impl IdentityKeyPair {
         }
     }
 
-    #[must_use]
-    pub fn public_key(&self) -> IdentityPublicKey {
-        match self {
-            Self::Software(s) => IdentityPublicKey {
-                ecc_public: s.ecc_public,
-                pqc_public: s.pqc_public.clone(),
-            },
-            Self::Hardware(h) => h.public_key().expect("Failed to get public key from hardware"),
-        }
+    pub fn public_key(&self) -> crate::keystore::BoxFuture<'_, IdentityPublicKey> {
+        Box::pin(async {
+            match self {
+                Self::Software(s) => IdentityPublicKey {
+                    ecc_public: s.ecc_public,
+                    pqc_public: s.pqc_public.clone(),
+                },
+                Self::Hardware(h) => h.public_key().await.expect("Failed to get public key from hardware"),
+            }
+        })
     }
 
-    pub fn sign(&self, message: &[u8], rnd: &[u8; 32]) -> Result<Vec<u8>, E2EError> {
-        match self {
-            Self::Software(s) => hybrid_crypto::ml_dsa::ml_dsa_87_sign(&s.pqc_private, message, &[], rnd)
-                .map_err(|_| E2EError::SigningError),
-            Self::Hardware(h) => h.sign_payload(message, rnd),
-        }
+    pub fn sign<'a>(&'a self, message: &'a [u8], rnd: &'a [u8; 32]) -> crate::keystore::BoxFuture<'a, Result<alloc::vec::Vec<u8>, E2EError>> {
+        Box::pin(async {
+            match self {
+                Self::Software(s) => hybrid_crypto::ml_dsa::ml_dsa_87_sign(&s.pqc_private, message, &[], rnd)
+                    .map_err(|_| E2EError::SigningError),
+                Self::Hardware(h) => h.sign_payload(message, rnd).await,
+            }
+        })
     }
 
-    pub fn ecdh(&self, peer_public: &[u8; 32]) -> Result<[u8; 32], E2EError> {
-        match self {
-            Self::Software(s) => hybrid_crypto::x25519::x25519(&s.ecc_private, peer_public)
-                .map_err(|_| E2EError::InvalidPreKeyBundle),
-            Self::Hardware(h) => h.shared_secret(peer_public),
-        }
+    pub fn ecdh<'a>(&'a self, peer_public: &'a [u8; 32]) -> crate::keystore::BoxFuture<'a, Result<[u8; 32], E2EError>> {
+        Box::pin(async {
+            match self {
+                Self::Software(s) => hybrid_crypto::x25519::x25519(&s.ecc_private, peer_public)
+                    .map_err(|_| E2EError::InvalidPreKeyBundle),
+                Self::Hardware(h) => h.shared_secret(peer_public).await,
+            }
+        })
     }
 }
 

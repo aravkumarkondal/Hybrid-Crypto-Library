@@ -16,13 +16,13 @@ impl AccountIdentity {
     }
 
     /// Signs a given Device's public key, certifying it belongs to this account.
-    pub fn certify_device(&self, device_pub: &IdentityPublicKey, rnd: &[u8; 32]) -> Result<DeviceSignature, E2EError> {
+    pub async fn certify_device(&self, device_pub: &IdentityPublicKey, rnd: &[u8; 32]) -> Result<DeviceSignature, E2EError> {
         let mut payload = Vec::new();
         payload.extend_from_slice(b"DEVICE_CERTIFICATION");
         payload.extend_from_slice(&device_pub.ecc_public);
         payload.extend_from_slice(&device_pub.pqc_public);
         
-        let signature = self.root_key.sign(&payload, rnd)?;
+        let signature = self.root_key.sign(&payload, rnd).await?;
         Ok(DeviceSignature(signature))
     }
 }
@@ -43,9 +43,8 @@ impl DeviceKeyPair {
         Self { device_id, keypair }
     }
     
-    #[must_use]
-    pub fn public_key(&self) -> IdentityPublicKey {
-        self.keypair.public_key()
+    pub async fn public_key(&self) -> IdentityPublicKey {
+        self.keypair.public_key().await
     }
 }
 

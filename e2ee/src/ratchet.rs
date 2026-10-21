@@ -4,7 +4,7 @@ use hybrid_crypto::provider::{CryptoProvider, StandardCryptoProvider as Provider
 use hybrid_crypto::hkdf::{hkdf_extract, hkdf_expand};
 use crate::errors::E2EError;
 
-use crate::state::{DoubleRatchetState, SkippedKeyState};
+use crate::state::{DoubleRatchetState, SkippedKeyState, PastEpochState};
 
 const KDF_HASH_LEN: usize = 32;
 const MAX_SKIPPED_KEYS: usize = 1000;
@@ -71,7 +71,7 @@ pub struct DoubleRatchet {
 
     // Out-of-order message key tracking
     skipped_message_keys: Vec<SkippedKey>,
-    past_dh_recv_publics: Vec<[u8; 32]>,
+    past_epochs: Vec<PastEpochState>,
 }
 
 impl Drop for DoubleRatchet {
@@ -113,7 +113,7 @@ impl DoubleRatchet {
             recv_msg_num: 0,
             prev_send_msg_num: 0,
             skipped_message_keys: Vec::new(),
-            past_dh_recv_publics: Vec::new(),
+            past_epochs: Vec::new(),
         };
 
         // Alice immediately performs a ratchet step using Bob's public keys
@@ -150,7 +150,7 @@ impl DoubleRatchet {
             recv_msg_num: 0,
             prev_send_msg_num: 0,
             skipped_message_keys: Vec::new(),
-            past_dh_recv_publics: Vec::new(),
+            past_epochs: Vec::new(),
         }
     }
 
@@ -193,11 +193,19 @@ impl DoubleRatchet {
         my_new_kem_encaps_entropy: &[u8; 32],
     ) -> Result<[u8; 1088], E2EError> {
         if let Some(old_dh) = self.dh_recv_public {
-            if !self.past_dh_recv_publics.contains(&old_dh) {
-                if self.past_dh_recv_publics.len() >= MAX_HISTORICAL_DH_KEYS {
-                    self.past_dh_recv_publics.remove(0);
+            let found = self.past_epochs.iter().any(|e| e.dh_recv_public == old_dh);
+            if !found {
+                if let Some(old_chain_key) = self.recv_chain_key {
+                    let epoch_state = PastEpochState {
+                        dh_recv_public: old_dh,
+                        recv_chain_key: old_chain_key,
+                        recv_msg_num: self.recv_msg_num,
+                    };
+                    if self.past_epochs.len() >= MAX_HISTORICAL_DH_KEYS {
+                        self.past_epochs.remove(0);
+                    }
+                    self.past_epochs.push(epoch_state);
                 }
-                self.past_dh_recv_publics.push(old_dh);
             }
         }
         
@@ -370,9 +378,71 @@ impl DoubleRatchet {
             }
         }
 
-        // 2. Reject if this is a historical DH key that was already ratcheted past
-        if self.past_dh_recv_publics.contains(peer_dh_public) {
-            return Err(E2EError::MessageOutOfOrder);
+        // 2. Reject if this is a historical DH key that was already ratcheted past, unless we can derive it from the history cache.
+        if self.dh_recv_public != Some(*peer_dh_public) {
+            let mut found_past_epoch = None;
+            for i in 0..self.past_epochs.len() {
+                if self.past_epochs[i].dh_recv_public == *peer_dh_public {
+                    found_past_epoch = Some(i);
+                    break;
+                }
+            }
+            if let Some(idx) = found_past_epoch {
+                // We found the epoch in the history cache.
+                if message_number < self.past_epochs[idx].recv_msg_num {
+                    return Err(E2EError::MessageOutOfOrder);
+                }
+                
+                // Ensure we don't try to derive too many keys at once to prevent CPU DoS
+                if message_number > self.past_epochs[idx].recv_msg_num + 2000 {
+                    return Err(E2EError::DoubleRatchetError);
+                }
+
+                // Step the past epoch's chain key up to the message_number
+                let mut current_ck = self.past_epochs[idx].recv_chain_key;
+                let mut current_msg_num = self.past_epochs[idx].recv_msg_num;
+                
+                while current_msg_num < message_number {
+                    let (next_ck, msg_key) = self.kdf_ck(&current_ck);
+                    zeroize(&mut current_ck);
+                    current_ck = next_ck;
+                    
+                    let mut iv = [0u8; 12];
+                    hkdf_expand(&msg_key, b"IV", &mut iv);
+                    let mut enc_key = [0u8; 32];
+                    hkdf_expand(&msg_key, b"Key", &mut enc_key);
+                    
+                    if self.skipped_message_keys.len() >= MAX_SKIPPED_KEYS {
+                        self.skipped_message_keys.remove(0); // Evict oldest
+                    }
+                    self.skipped_message_keys.push(SkippedKey {
+                        peer_dh_public: *peer_dh_public,
+                        message_number: current_msg_num,
+                        key: enc_key,
+                        iv,
+                    });
+                    current_msg_num += 1;
+                    
+                    let mut mk = msg_key;
+                    zeroize(&mut mk);
+                }
+                
+                // Derive the target message key
+                let (next_ck, msg_key) = self.kdf_ck(&current_ck);
+                zeroize(&mut current_ck);
+                self.past_epochs[idx].recv_chain_key = next_ck;
+                self.past_epochs[idx].recv_msg_num = current_msg_num + 1;
+                
+                let mut iv = [0u8; 12];
+                hkdf_expand(&msg_key, b"IV", &mut iv);
+                let mut enc_key = [0u8; 32];
+                hkdf_expand(&msg_key, b"Key", &mut enc_key);
+                
+                let mut mk = msg_key;
+                zeroize(&mut mk);
+                
+                return Ok((enc_key, iv, None));
+            }
         }
 
         // 3. Reject if this is a past message number in the current chain
@@ -463,7 +533,7 @@ impl DoubleRatchet {
             recv_msg_num: self.recv_msg_num,
             prev_send_msg_num: self.prev_send_msg_num,
             skipped_message_keys: self.skipped_message_keys.iter().map(SkippedKey::export).collect(),
-            past_dh_recv_publics: self.past_dh_recv_publics.clone(),
+            past_epochs: self.past_epochs.clone(),
         }
     }
 
@@ -483,7 +553,7 @@ impl DoubleRatchet {
             recv_msg_num: state.recv_msg_num,
             prev_send_msg_num: state.prev_send_msg_num,
             skipped_message_keys: state.skipped_message_keys.iter().map(SkippedKey::restore).collect(),
-            past_dh_recv_publics: state.past_dh_recv_publics.clone(),
+            past_epochs: state.past_epochs.clone(),
         }
     }
 }

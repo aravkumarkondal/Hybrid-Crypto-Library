@@ -1,3 +1,35 @@
+use e2ee::{Session, SessionState, serialization::Serialize};
+use std::ffi::c_void;
+
+#[no_mangle]
+pub unsafe extern "C" fn hybrid_session_initialize(
+    out_handle: *mut *mut c_void,
+    payload_ptr: *const u8,
+    payload_len: usize,
+) -> i32 {
+    if out_handle.is_null() || payload_ptr.is_null() {
+        return -1;
+    }
+    
+    let payload = std::slice::from_raw_parts(payload_ptr, payload_len);
+    
+    let master_key = [0x00; 32];
+    match Session::restore_state(payload, &master_key) {
+        Ok(session) => {
+            let session_box = Box::new(session);
+            *out_handle = Box::into_raw(session_box) as *mut c_void;
+            0
+        }
+        Err(_) => -2,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn hybrid_session_destroy(handle: *mut c_void) {
+    if !handle.is_null() {
+        let _ = Box::from_raw(handle as *mut Session);
+    }
+}
 
 #[cfg(kani)]
 mod kani_proofs {

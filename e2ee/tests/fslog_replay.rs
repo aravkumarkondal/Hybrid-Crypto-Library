@@ -1,8 +1,7 @@
 extern crate alloc;
 
-use e2ee::fslog::{FsLogStore};
+use e2ee::fslog::FsLogStore;
 use e2ee::errors::E2EError;
-use alloc::vec::Vec;
 
 #[test]
 fn test_fslog_replay_resistance() {

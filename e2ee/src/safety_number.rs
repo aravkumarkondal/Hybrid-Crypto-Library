@@ -61,8 +61,9 @@ mod tests {
 
     #[test]
     fn test_safety_number_determinism() {
-        let id1 = IdentityKeyPair::generate(&[1; 32], &[2; 32]).public_key();
-        let id2 = IdentityKeyPair::generate(&[3; 32], &[4; 32]).public_key();
+        use crate::ffi::block_on;
+        let id1 = block_on(IdentityKeyPair::generate(&[1; 32], &[2; 32]).public_key());
+        let id2 = block_on(IdentityKeyPair::generate(&[3; 32], &[4; 32]).public_key());
 
         let sn1 = SafetyNumber::generate(&id1, &id2);
         let sn2 = SafetyNumber::generate(&id2, &id1);
@@ -78,9 +79,10 @@ mod tests {
     
     #[test]
     fn test_safety_number_distinctness() {
-        let id1 = IdentityKeyPair::generate(&[1; 32], &[2; 32]).public_key();
-        let id2 = IdentityKeyPair::generate(&[3; 32], &[4; 32]).public_key();
-        let id3 = IdentityKeyPair::generate(&[5; 32], &[6; 32]).public_key();
+        use crate::ffi::block_on;
+        let id1 = block_on(IdentityKeyPair::generate(&[1; 32], &[2; 32]).public_key());
+        let id2 = block_on(IdentityKeyPair::generate(&[3; 32], &[4; 32]).public_key());
+        let id3 = block_on(IdentityKeyPair::generate(&[5; 32], &[6; 32]).public_key());
 
         let sn1 = SafetyNumber::generate(&id1, &id2);
         let sn2 = SafetyNumber::generate(&id1, &id3);

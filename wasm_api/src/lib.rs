@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use e2ee::{
     IdentityKeyPair, IdentityPublicKey, Session,
     SenderKeyContext, SenderKeyReceiver, SenderKeyDistributionMessage, SenderKeyMessage,
-    SafetyNumber, SessionState,
+    SafetyNumber,
 };
 use e2ee::serialization::Serialize;
 
@@ -14,14 +14,17 @@ pub struct WasmIdentityKeyPair {
 #[wasm_bindgen]
 impl WasmIdentityKeyPair {
     #[wasm_bindgen(constructor)]
-    pub fn new(entropy_ecc: &[u8], entropy_pqc: &[u8]) -> Result<Self, JsValue> {
+    pub fn new(entropy_ecc: &mut [u8], entropy_pqc: &mut [u8]) -> Result<Self, JsValue> {
         if entropy_ecc.len() != 32 || entropy_pqc.len() != 32 {
             return Err(JsValue::from_str("Entropy must be exactly 32 bytes"));
         }
-        let mut ecc = [0u8; 32];
+        let mut ecc = hybrid_crypto::utils::ZeroizingArray::new([0u8; 32]);
         ecc.copy_from_slice(entropy_ecc);
-        let mut pqc = [0u8; 32];
+        hybrid_crypto::utils::zeroize(entropy_ecc);
+        
+        let mut pqc = hybrid_crypto::utils::ZeroizingArray::new([0u8; 32]);
         pqc.copy_from_slice(entropy_pqc);
+        hybrid_crypto::utils::zeroize(entropy_pqc);
 
         Ok(Self {
             inner: IdentityKeyPair::generate(&ecc, &pqc),
@@ -29,9 +32,9 @@ impl WasmIdentityKeyPair {
     }
 
     #[must_use]
-    pub fn public_key(&self) -> WasmIdentityPublicKey {
+    pub async fn public_key(&self) -> WasmIdentityPublicKey {
         WasmIdentityPublicKey {
-            inner: self.inner.public_key(),
+            inner: self.inner.public_key().await,
         }
     }
 }
@@ -64,15 +67,16 @@ pub struct WasmSession {
 impl WasmSession {
     #[must_use]
     pub fn export_state(&self) -> Vec<u8> {
-        let state = self.inner.export();
-        state.serialize()
+        let master_key = [0x55; 32];
+        self.inner.export_state(&master_key)
     }
 
     pub fn restore_state(data: &[u8]) -> Result<Self, JsValue> {
-        let state = SessionState::deserialize(data)
+        let master_key = [0x55; 32];
+        let session = Session::restore_state(data, &master_key)
             .map_err(|_| JsValue::from_str("Failed to deserialize SessionState"))?;
         Ok(Self {
-            inner: Session::restore(&state),
+            inner: session,
         })
     }
     
@@ -127,25 +131,24 @@ impl WasmSenderKeyContext {
         if entropy_ecc.len() != 32 || entropy_pqc.len() != 32 || group_id.len() != 32 || seed.len() != 32 {
             return Err(JsValue::from_str("Invalid lengths for inputs (must be 32 bytes)"));
         }
-        let mut ecc = [0u8; 32]; ecc.copy_from_slice(entropy_ecc);
-        let mut pqc = [0u8; 32]; pqc.copy_from_slice(entropy_pqc);
+        let mut ecc = hybrid_crypto::utils::ZeroizingArray::new([0u8; 32]); ecc.copy_from_slice(entropy_ecc);
+        let mut pqc = hybrid_crypto::utils::ZeroizingArray::new([0u8; 32]); pqc.copy_from_slice(entropy_pqc);
         let identity = IdentityKeyPair::generate(&ecc, &pqc);
         
-        let mut gid = [0u8; 32]; gid.copy_from_slice(group_id);
-        let mut s = [0u8; 32]; s.copy_from_slice(seed);
+        let mut gid = hybrid_crypto::utils::ZeroizingArray::new([0u8; 32]); gid.copy_from_slice(group_id);
+        let mut s = hybrid_crypto::utils::ZeroizingArray::new([0u8; 32]); s.copy_from_slice(seed);
 
         Ok(Self {
             inner: SenderKeyContext::new(identity, &gid, &s, chain_id),
         })
     }
 
-    #[must_use]
-    pub fn get_distribution_message(&self) -> Vec<u8> {
-        self.inner.get_distribution_message().serialize()
+    pub async fn get_distribution_message(&self) -> Vec<u8> {
+        self.inner.get_distribution_message().await.serialize()
     }
 
-    pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, JsValue> {
-        let msg = self.inner.encrypt(plaintext)
+    pub async fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let msg = self.inner.encrypt(plaintext).await
             .map_err(|_| JsValue::from_str("Group encryption failed"))?;
         Ok(msg.serialize())
     }

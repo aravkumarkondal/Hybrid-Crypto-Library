@@ -17,16 +17,12 @@ pub fn montgomery_reduce(a: i64) -> i32 {
 }
 
 pub fn fqmul_std(a: i32, b: i32) -> i32 {
-    let p = a as i128 * b as i128;
-    let v = (p * 2201172506692i128) >> 64;
-    let mut c = (p - v * 8380417) as i32;
-    let mask1 = c >> 31;
-    c += mask1 & Q;
-    let mask2 = (Q - 1 - c) >> 31;
-    c -= mask2 & Q;
-    let mask3 = c >> 31;
-    c += mask3 & Q;
-    c
+    let mut res = fqmul(fqmul(a, b), 2365951);
+    let mask = res >> 31;
+    res += mask & Q;
+    let mask_over = (Q - 1 - res) >> 31;
+    res -= mask_over & Q;
+    res
 }
 
 pub fn fqmul(a: i32, b: i32) -> i32 {
@@ -539,5 +535,72 @@ pub fn poly_sub(a: &mut [i32; 256], b: &[i32; 256]) {
 pub fn poly_basemul(a: &mut [i32; 256], b: &[i32; 256]) {
     for i in 0..256 {
         a[i] = fqmul_std(a[i], b[i]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ml_dsa_poly_basemul_correctness() {
+        let mut a = [0i32; 256];
+        let mut b = [0i32; 256];
+        
+        // Test 1: Zeros
+        a[0] = 0; b[0] = 0;
+        // Test 2: Standard positive numbers
+        a[1] = 1000; b[1] = 2000;
+        // Test 3: Standard negative numbers
+        a[2] = -1000; b[2] = -2000;
+        // Test 4: Mixed signs
+        a[3] = 3000; b[3] = -1500;
+        // Test 5: Near bounds (+ boundary)
+        a[4] = 8380416; b[4] = 1;
+        // Test 6: Extreme values
+        a[5] = Q - 1; b[5] = Q - 1;
+        // Test 7: Q itself (should be 0 mod Q)
+        a[6] = Q; b[6] = 2;
+        // Test 8: Large out-of-bounds (to check if reduction catches it safely, even if theoretically bounded by Q)
+        a[7] = Q * 2 + 5; b[7] = 3;
+
+        poly_basemul(&mut a, &b);
+
+        // Verification logic
+        assert_eq!((a[0] % Q + Q) % Q, 0);
+        
+        let res1 = ((1000i64 * 2000i64) % (Q as i64)) as i32;
+        assert_eq!((a[1] % Q + Q) % Q, (res1 % Q + Q) % Q);
+
+        let res2 = ((-1000i64 * -2000i64) % (Q as i64)) as i32;
+        assert_eq!((a[2] % Q + Q) % Q, (res2 % Q + Q) % Q);
+
+        let res3 = ((3000i64 * -1500i64) % (Q as i64)) as i32;
+        assert_eq!((a[3] % Q + Q) % Q, (res3 % Q + Q) % Q);
+
+        let res4 = ((8380416i64 * 1i64) % (Q as i64)) as i32;
+        assert_eq!((a[4] % Q + Q) % Q, (res4 % Q + Q) % Q);
+
+        let res5 = (((Q - 1) as i64 * (Q - 1) as i64) % (Q as i64)) as i32;
+        assert_eq!((a[5] % Q + Q) % Q, (res5 % Q + Q) % Q);
+
+        assert_eq!((a[6] % Q + Q) % Q, 0);
+
+        let res7 = (((Q * 2 + 5) as i64 * 3i64) % (Q as i64)) as i32;
+        assert_eq!((a[7] % Q + Q) % Q, (res7 % Q + Q) % Q);
+        
+        // Ensure no panics on large random array
+        let mut rand_a = [0i32; 256];
+        let mut rand_b = [0i32; 256];
+        for i in 0..256 {
+            rand_a[i] = (i as i32 * 997) % Q;
+            rand_b[i] = (i as i32 * 1009) % Q;
+        }
+        
+        poly_basemul(&mut rand_a, &rand_b);
+        for i in 0..256 {
+            let expected = (((i as i32 * 997) % Q) as i64 * ((i as i32 * 1009) % Q) as i64 % (Q as i64)) as i32;
+            assert_eq!((rand_a[i] % Q + Q) % Q, (expected % Q + Q) % Q);
+        }
     }
 }

@@ -58,7 +58,7 @@ fn test_payload_expiration_check() {
         message_number: 1,
     };
     
-    let msg = Message::encrypt(&key, &iv, header, &serialized);
+    let msg = Message::encrypt(&key, &iv, header, &serialized, &[]);
     
     // Decrypt at timestamp 999 (Valid)
     let dec_valid = msg.decrypt_payload(&key, &iv, 999);

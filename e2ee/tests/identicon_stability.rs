@@ -10,8 +10,8 @@ fn test_identicon_stability_and_symmetry() {
     let device = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
     
     let fingerprint1 = HybridFingerprint::generate(
-        &alice.public_key(),
-        &device.public_key(),
+        &futures::executor::block_on(alice.public_key()),
+        &futures::executor::block_on(device.public_key()),
         &[5; 32],
         &[6; 32],
     );
@@ -30,8 +30,8 @@ fn test_identicon_stability_and_symmetry() {
     
     // Test determinism
     let fingerprint2 = HybridFingerprint::generate(
-        &alice.public_key(),
-        &device.public_key(),
+        &futures::executor::block_on(alice.public_key()),
+        &futures::executor::block_on(device.public_key()),
         &[5; 32],
         &[6; 32],
     );
@@ -49,8 +49,8 @@ fn test_identicon_stability_and_symmetry() {
     let mut different_ephemeral = [5; 32];
     different_ephemeral[0] ^= 1;
     let fingerprint3 = HybridFingerprint::generate(
-        &alice.public_key(),
-        &device.public_key(),
+        &futures::executor::block_on(alice.public_key()),
+        &futures::executor::block_on(device.public_key()),
         &different_ephemeral,
         &[6; 32],
     );

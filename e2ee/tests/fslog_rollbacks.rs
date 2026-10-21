@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use e2ee::fslog::{FsLogStore, LogEntry};
+use e2ee::fslog::FsLogStore;
 use e2ee::errors::E2EError;
 
 #[test]

@@ -9,8 +9,8 @@ fn test_verification_visual_formats() {
     let device = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
     
     let fingerprint = HybridFingerprint::generate(
-        &alice.public_key(),
-        &device.public_key(),
+        &futures::executor::block_on(alice.public_key()),
+        &futures::executor::block_on(device.public_key()),
         &[5; 32],
         &[6; 32],
     );
@@ -37,11 +37,11 @@ fn test_verification_visual_formats() {
 fn test_verification_visual_collisions() {
     let alice1 = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
     let device1 = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
-    let fp1 = HybridFingerprint::generate(&alice1.public_key(), &device1.public_key(), &[5; 32], &[6; 32]);
+    let fp1 = HybridFingerprint::generate(&futures::executor::block_on(alice1.public_key()), &futures::executor::block_on(device1.public_key()), &[5; 32], &[6; 32]);
 
     let alice2 = IdentityKeyPair::generate(&[1; 32], &[2; 32]); // same keys
     let device2 = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
-    let fp2 = HybridFingerprint::generate(&alice2.public_key(), &device2.public_key(), &[5; 32], &[6; 32]);
+    let fp2 = HybridFingerprint::generate(&futures::executor::block_on(alice2.public_key()), &futures::executor::block_on(device2.public_key()), &[5; 32], &[6; 32]);
     
     // Identical inputs must yield identical fingerprints
     assert_eq!(fp1.as_bytes(), fp2.as_bytes());
@@ -51,7 +51,7 @@ fn test_verification_visual_collisions() {
     // Single bit change in ephemeral key MUST change fingerprint
     let mut different_ephemeral = [5; 32];
     different_ephemeral[0] ^= 1;
-    let fp3 = HybridFingerprint::generate(&alice1.public_key(), &device1.public_key(), &different_ephemeral, &[6; 32]);
+    let fp3 = HybridFingerprint::generate(&futures::executor::block_on(alice1.public_key()), &futures::executor::block_on(device1.public_key()), &different_ephemeral, &[6; 32]);
     
     assert_ne!(fp1.as_bytes(), fp3.as_bytes());
     assert_ne!(fp1.numeric_sas(), fp3.numeric_sas());

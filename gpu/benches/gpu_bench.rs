@@ -1,4 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 fn mock_cpu_compute(input: &[u32]) -> Vec<u32> {
     input.iter().map(|&x| x.wrapping_add(42)).collect()

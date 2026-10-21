@@ -6,11 +6,11 @@ use e2ee::backup::SessionBackup;
 fn setup_sessions() -> (Session, Session) {
     let alice_id = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
     let bob_id = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-    let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_id, &[0x33; 32]).unwrap();
+    let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_id, &[0x33; 32])).unwrap();
     let bob_opk = OneTimePreKeyPair::generate(1, &[0x41; 32], &[0x42; 64]);
     
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_id.public_key(),
+        identity_key: futures::executor::block_on(bob_id.public_key()),
         signed_prekey_id: bob_spk.id,
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public,
@@ -20,11 +20,11 @@ fn setup_sessions() -> (Session, Session) {
         one_time_prekey_pqc_public: Some(bob_opk.pqc_public),
     };
 
-    let (alice_session, prekey_msg, initial_msg) = Session::setup_as_initiator(
+    let (alice_session, prekey_msg, initial_msg) = futures::executor::block_on(Session::setup_as_initiator(
         &alice_id, &bob_bundle, &[0x51; 32], &[0x52; 32], Some(&[0x53; 32]), &[0x54; 32], &[0x55; 64], &[0x56; 32],
-    ).unwrap();
+    )).unwrap();
 
-    let mut bob_session = Session::setup_as_responder(&bob_id, &bob_spk, Some(&bob_opk), &prekey_msg).unwrap();
+    let mut bob_session = futures::executor::block_on(Session::setup_as_responder(&bob_id, &bob_spk, Some(&bob_opk), &prekey_msg)).unwrap();
     let _ = bob_session.receive_initial_message(&initial_msg, &[0x61; 32], &[0x62; 64], &[0x63; 32]).unwrap();
 
     (alice_session, bob_session)
@@ -39,7 +39,7 @@ fn test_session_backup_roundtrip() {
     
     // Create MultiDeviceSession
     let alice_identity = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
-    let mut alice_multi = MultiDeviceSession::new(alice_identity.public_key());
+    let mut alice_multi = MultiDeviceSession::new(futures::executor::block_on(alice_identity.public_key()));
     alice_multi.add_session(1, alice_session);
 
     // Create backup
@@ -60,7 +60,7 @@ fn test_session_backup_roundtrip() {
 fn test_session_backup_wrong_key() {
     let (alice_session, _) = setup_sessions();
     let alice_identity = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
-    let mut alice_multi = MultiDeviceSession::new(alice_identity.public_key());
+    let mut alice_multi = MultiDeviceSession::new(futures::executor::block_on(alice_identity.public_key()));
     alice_multi.add_session(1, alice_session);
         
     let backup_key = [99u8; 32];

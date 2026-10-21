@@ -7,9 +7,9 @@ use e2ee::errors::E2EError;
 fn test_e2ee_ratchet_dos_protection() {
     let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
     let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-    let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+    let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_identity.public_key(),
+        identity_key: futures::executor::block_on(bob_identity.public_key()),
         signed_prekey_id: bob_spk.id,
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public,
@@ -23,7 +23,7 @@ fn test_e2ee_ratchet_dos_protection() {
         &alice_identity, &bob_bundle, &[0x51; 32], &[0x52; 32], None, &[0x54; 32], &[0x55; 64], &[0x56; 32]
     ).unwrap();
     
-    let mut bob_session = Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg).unwrap();
+    let mut bob_session = futures::executor::block_on(Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg)).unwrap();
     bob_session.receive_initial_message(&initial_msg, &[0x61; 32], &[0x62; 64], &[0x63; 32]).unwrap();
     
     // Attacker intercepts Alice's next message and maliciously modifies the message sequence number to 10,000
@@ -42,9 +42,9 @@ fn test_e2ee_ratchet_dos_protection() {
 fn test_e2ee_extreme_message_dropping() {
     let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
     let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-    let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+    let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_identity.public_key(),
+        identity_key: futures::executor::block_on(bob_identity.public_key()),
         signed_prekey_id: bob_spk.id,
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public,
@@ -58,7 +58,7 @@ fn test_e2ee_extreme_message_dropping() {
         &alice_identity, &bob_bundle, &[0x51; 32], &[0x52; 32], None, &[0x54; 32], &[0x55; 64], &[0x56; 32]
     ).unwrap();
     
-    let mut bob_session = Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg).unwrap();
+    let mut bob_session = futures::executor::block_on(Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg)).unwrap();
     bob_session.receive_initial_message(&initial_msg, &[0x61; 32], &[0x62; 64], &[0x63; 32]).unwrap();
     
     // Alice sends 5 messages
@@ -85,9 +85,9 @@ fn test_e2ee_extreme_message_dropping() {
 fn test_e2ee_hybrid_downgrade_attack() {
     let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
     let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-    let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+    let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_identity.public_key(),
+        identity_key: futures::executor::block_on(bob_identity.public_key()),
         signed_prekey_id: bob_spk.id,
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public,

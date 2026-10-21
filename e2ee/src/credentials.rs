@@ -17,9 +17,9 @@ pub struct PseudonymousCredential {
 impl PseudonymousCredential {
     /// Extracts the public representation of this credential
     #[must_use]
-    pub fn to_public(&self) -> PublicPseudonymousCredential {
+    pub async fn to_public(&self) -> PublicPseudonymousCredential {
         PublicPseudonymousCredential {
-            public_key: self.keypair.public_key(),
+            public_key: self.keypair.public_key().await,
             attributes: self.attributes.clone(),
             authority_signature: self.authority_signature.clone(),
         }
@@ -40,9 +40,9 @@ impl PublicPseudonymousCredential {
     /// collude by releasing issuance logs.
     pub fn verify(&self, authority_public: &IdentityPublicKey) -> Result<(), E2EError> {
         let mut msg = Vec::new();
+        msg.extend_from_slice(&self.attributes);
         msg.extend_from_slice(&self.public_key.ecc_public);
         msg.extend_from_slice(&self.public_key.pqc_public);
-        msg.extend_from_slice(&self.attributes);
 
         if authority_public.verify(&msg, &self.authority_signature) {
             Ok(())
@@ -66,7 +66,7 @@ impl CredentialIssuer {
     /// 
     /// Privacy Claim: [HIGH CONFIDENCE] - The keypair is freshly generated via robust PRNG
     /// ensuring no mathematical link to the user's long-term identity.
-    pub fn issue_credential(
+    pub async fn issue_credential(
         &self,
         attributes: &[u8],
         seed_ecc: &[u8; 32],
@@ -77,12 +77,12 @@ impl CredentialIssuer {
         let pseudonymous_keypair = IdentityKeyPair::generate(seed_ecc, seed_pqc);
 
         let mut msg = Vec::new();
-        let pub_key = pseudonymous_keypair.public_key();
+        msg.extend_from_slice(attributes);
+        let pub_key = pseudonymous_keypair.public_key().await;
         msg.extend_from_slice(&pub_key.ecc_public);
         msg.extend_from_slice(&pub_key.pqc_public);
-        msg.extend_from_slice(attributes);
 
-        let signature = self.authority_keypair.sign(&msg, signature_entropy)?;
+        let signature = self.authority_keypair.sign(&msg, signature_entropy).await?;
 
         Ok(PseudonymousCredential {
             keypair: pseudonymous_keypair,

@@ -20,6 +20,7 @@ fn test_transparency_log_inclusion_proof() {
     let is_valid = KeyTransparencyLog::verify_inclusion(
         b"Device3_PubKey",
         2,
+        5,
         &proof,
         &expected_root,
     );
@@ -30,6 +31,7 @@ fn test_transparency_log_inclusion_proof() {
     let is_valid_malicious = KeyTransparencyLog::verify_inclusion(
         b"Device3_Malicious_PubKey",
         2,
+        5,
         &proof,
         &expected_root,
     );

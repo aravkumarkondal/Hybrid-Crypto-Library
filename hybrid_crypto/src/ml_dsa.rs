@@ -26,8 +26,6 @@ fn h(input: &[u8], out: &mut [u8; 64]) {
 pub fn ml_dsa_87_keypair(xi: &[u8; 32]) -> (Vec<u8>, SecretKey) {
     let mut state = KeccakState::new(136, 0x1F);
     state.absorb(xi);
-    // Append the standard FIPS 204 suffix (the algorithm identifier dimension K and length L)
-    state.absorb(&[K as u8, L as u8]);
     state.finalize();
     let mut out = [0u8; 128];
     state.squeeze(&mut out);
@@ -517,7 +515,7 @@ pub fn ml_dsa_87_verify(pk: &[u8], m: &[u8], ctx: &[u8], sig: &[u8]) -> bool {
         let mut p = [0u8; N];
         let bound = h_enc[OMEGA + i];
         if bound < idx || bound > OMEGA as u8 {
-            is_valid = false;
+            return false;
         }
         let mut prev_hint_pos: i32 = -1;
         // To be constant time, we should iterate a fixed number of times (OMEGA)

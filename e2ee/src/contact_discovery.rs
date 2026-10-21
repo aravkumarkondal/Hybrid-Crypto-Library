@@ -28,13 +28,13 @@ impl DiscoveryClient {
     /// Decrypts the enclave's response to get the intersected hashes
     pub fn process_response(
         session: &mut Session,
-        response: &Message,
+        req: &Message,
         dh_entropy: &[u8; 32],
         kem_entropy: &[u8; 64],
         kem_encaps_entropy: &[u8; 32],
     ) -> Result<Vec<[u8; 32]>, E2EError> {
         let plaintext = session.decrypt_message(
-            response,
+            req,
             dh_entropy,
             kem_entropy,
             kem_encaps_entropy,
@@ -74,13 +74,13 @@ impl DiscoveryEnclave {
     pub fn process_request(
         &self,
         session: &mut Session,
-        request: &Message,
+        msg: &Message,
         dh_entropy: &[u8; 32],
         kem_entropy: &[u8; 64],
         kem_encaps_entropy: &[u8; 32],
     ) -> Result<Message, E2EError> {
         let mut query = session.decrypt_message(
-            request,
+            msg,
             dh_entropy,
             kem_entropy,
             kem_encaps_entropy,

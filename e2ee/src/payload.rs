@@ -45,7 +45,7 @@ impl Attachment {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MessagePayload {
-    pub body: Vec<u8>,
+    pub body: hybrid_crypto::utils::SecretKey,
     pub expires_at: Option<u64>,
     pub attachments: Vec<Attachment>,
 }
@@ -54,7 +54,7 @@ impl MessagePayload {
     #[must_use]
     pub fn new(body: &[u8]) -> Self {
         Self {
-            body: body.to_vec(),
+            body: hybrid_crypto::utils::SecretKey(body.to_vec()),
             expires_at: None,
             attachments: Vec::new(),
         }
@@ -65,11 +65,11 @@ impl MessagePayload {
         let mut out = Vec::new();
         
         // 1. Serialize Body
-        if !self.body.is_empty() {
+        if !self.body.0.is_empty() {
             out.push(TYPE_BODY);
-            let len = self.body.len() as u32;
+            let len = self.body.0.len() as u32;
             out.extend_from_slice(&len.to_le_bytes());
-            out.extend_from_slice(&self.body);
+            out.extend_from_slice(&self.body.0);
         }
 
         // 2. Serialize Expiration
@@ -114,7 +114,7 @@ impl MessagePayload {
 
     pub fn deserialize(data: &[u8]) -> Result<Self, E2EError> {
         let mut payload = Self {
-            body: Vec::new(),
+            body: hybrid_crypto::utils::SecretKey(Vec::new()),
             expires_at: None,
             attachments: Vec::new(),
         };
@@ -141,7 +141,7 @@ impl MessagePayload {
 
             match t {
                 TYPE_BODY => {
-                    payload.body = val.to_vec();
+                    payload.body = hybrid_crypto::utils::SecretKey(val.to_vec());
                 }
                 TYPE_EXPIRES_AT => {
                     if len != 8 {

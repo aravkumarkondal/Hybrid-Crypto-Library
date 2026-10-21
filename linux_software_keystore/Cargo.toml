@@ -1,13 +1,12 @@
 [package]
-name = "linux_keystore"
+name = "linux_software_keystore"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-base64 = "0.22.1"
 e2ee = { path = "../e2ee" }
-keyring = "4.1.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+secret-service = "5.1.0"
 tss-esapi = "7.3.0"
 hybrid_crypto = { path = "../hybrid_crypto" }

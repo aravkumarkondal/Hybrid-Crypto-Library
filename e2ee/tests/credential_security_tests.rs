@@ -4,7 +4,7 @@ use e2ee::identity::IdentityKeyPair;
 #[test]
 fn test_credential_issuance_and_verification() {
     let authority_keypair = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
-    let authority_public = authority_keypair.public_key();
+    let authority_public = futures::executor::block_on(authority_keypair.public_key());
     
     let issuer = CredentialIssuer::new(authority_keypair);
     
@@ -13,10 +13,10 @@ fn test_credential_issuance_and_verification() {
     let seed_pqc = &[4; 32];
     let sig_entropy = &[5; 32];
     
-    let credential = issuer.issue_credential(attributes, seed_ecc, seed_pqc, sig_entropy)
+    let credential = futures::executor::block_on(issuer.issue_credential(attributes, seed_ecc, seed_pqc, sig_entropy))
         .expect("Failed to issue credential");
         
-    let public_cred = credential.to_public();
+    let public_cred = futures::executor::block_on(credential.to_public());
     
     // VERIFIED: Signature verification passes
     assert!(public_cred.verify(&authority_public).is_ok());
@@ -30,10 +30,12 @@ fn test_credential_unlinkability() {
     // User gets two credentials with different seeds
     let attributes = b"Role: AnonymousUser";
     
-    let cred1 = issuer.issue_credential(attributes, &[10; 32], &[11; 32], &[12; 32]).unwrap();
-    let cred2 = issuer.issue_credential(attributes, &[20; 32], &[21; 32], &[22; 32]).unwrap();
+    let cred1 = futures::executor::block_on(issuer.issue_credential(attributes, &[10; 32], &[11; 32], &[12; 32])).unwrap();
+    let cred2 = futures::executor::block_on(issuer.issue_credential(attributes, &[20; 32], &[21; 32], &[22; 32])).unwrap();
     
     // HIGH CONFIDENCE: The two public keys must be entirely different, rendering them unlinkable
-    assert_ne!(cred1.keypair.public_key().ecc_public, cred2.keypair.public_key().ecc_public);
-    assert_ne!(cred1.keypair.public_key().pqc_public, cred2.keypair.public_key().pqc_public);
+    let pub1 = futures::executor::block_on(cred1.keypair.public_key());
+    let pub2 = futures::executor::block_on(cred2.keypair.public_key());
+    assert_ne!(pub1.ecc_public, pub2.ecc_public);
+    assert_ne!(pub1.pqc_public, pub2.pqc_public);
 }

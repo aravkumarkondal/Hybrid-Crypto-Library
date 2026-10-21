@@ -63,8 +63,10 @@ __kernel void ntt_batched(
         p[start + len] = p[start] - t;
         p[start] = p[start] + t;
         
-        if (p[start + len] < 0) p[start + len] += Q;
-        if (p[start] >= Q) p[start] -= Q;
+        int mask_neg = p[start + len] >> 31;
+        p[start + len] += mask_neg & Q;
+        int mask_pos = (Q - 1 - p[start]) >> 31;
+        p[start] -= mask_pos & Q;
         
         k += (128 / len);
     }

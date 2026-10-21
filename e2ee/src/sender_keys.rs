@@ -45,6 +45,7 @@ impl SenderKeyChain {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct SenderKeyDistributionMessage {
     pub group_id: [u8; 32],
     pub sender_identity: IdentityPublicKey,
@@ -55,13 +56,11 @@ pub struct SenderKeyDistributionMessage {
 
 impl Serialize for SenderKeyDistributionMessage {
     fn serialize(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&self.group_id);
-        
         let id_bytes = self.sender_identity.serialize();
+        let mut buf = Vec::with_capacity(32 + 4 + id_bytes.len() + 4 + 4 + 32);
+        buf.extend_from_slice(&self.group_id);
         buf.extend_from_slice(&(id_bytes.len() as u32).to_le_bytes());
         buf.extend_from_slice(&id_bytes);
-
         buf.extend_from_slice(&self.chain_id.to_le_bytes());
         buf.extend_from_slice(&self.iteration.to_le_bytes());
         buf.extend_from_slice(&self.chain_key);
@@ -110,6 +109,7 @@ impl Serialize for SenderKeyDistributionMessage {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct SenderKeyMessage {
     pub group_id: [u8; 32],
     pub sender_identity: IdentityPublicKey,
@@ -122,10 +122,11 @@ pub struct SenderKeyMessage {
 
 impl Serialize for SenderKeyMessage {
     fn serialize(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&self.group_id);
-        
         let id_bytes = self.sender_identity.serialize();
+        let capacity = 32 + 4 + id_bytes.len() + 4 + 4 + 4 + self.ciphertext.len() + 16 + 4 + self.signature.len();
+        let mut buf = Vec::with_capacity(capacity);
+        
+        buf.extend_from_slice(&self.group_id);
         buf.extend_from_slice(&(id_bytes.len() as u32).to_le_bytes());
         buf.extend_from_slice(&id_bytes);
 
@@ -229,18 +230,17 @@ impl SenderKeyContext {
         }
     }
 
-    #[must_use]
-    pub fn get_distribution_message(&self) -> SenderKeyDistributionMessage {
+    pub async fn get_distribution_message(&self) -> SenderKeyDistributionMessage {
         SenderKeyDistributionMessage {
             group_id: self.group_id,
-            sender_identity: self.my_identity.public_key(),
+            sender_identity: self.my_identity.public_key().await,
             chain_id: self.chain_id,
             iteration: self.chain.iteration,
             chain_key: self.chain.chain_key,
         }
     }
 
-    pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<SenderKeyMessage, E2EError> {
+    pub async fn encrypt(&mut self, plaintext: &[u8]) -> Result<SenderKeyMessage, E2EError> {
         let iteration = self.chain.iteration;
         let (key, iv) = self.chain.next_message_key();
         
@@ -254,7 +254,8 @@ impl SenderKeyContext {
 
         // Sign the ciphertext + aad + sender_identity
         let mut msg_to_sign = Vec::new();
-        let id_bytes = self.my_identity.public_key().serialize();
+        let pub_key = self.my_identity.public_key().await;
+        let id_bytes = pub_key.serialize();
         msg_to_sign.extend_from_slice(&(id_bytes.len() as u32).to_le_bytes());
         msg_to_sign.extend_from_slice(&id_bytes);
         msg_to_sign.extend_from_slice(&aad);
@@ -262,12 +263,12 @@ impl SenderKeyContext {
         msg_to_sign.extend_from_slice(&auth_tag);
 
         let rnd = [0u8; 32]; // Replace with proper entropy in real app if possible, or 0s as deterministic
-        let signature = self.my_identity.sign(&msg_to_sign, &rnd)
+        let signature = self.my_identity.sign(&msg_to_sign, &rnd).await
             .map_err(|_| E2EError::SigningError)?;
 
         Ok(SenderKeyMessage {
             group_id: self.group_id,
-            sender_identity: self.my_identity.public_key(),
+            sender_identity: pub_key,
             chain_id: self.chain_id,
             iteration,
             ciphertext,
@@ -296,13 +297,13 @@ impl SenderKeyReceiver {
     }
 
     pub fn decrypt(&mut self, msg: &SenderKeyMessage) -> Result<Vec<u8>, E2EError> {
-        if self.group_id != msg.group_id || self.chain_id != msg.chain_id {
+        if self.group_id != msg.group_id || self.chain_id != msg.chain_id || self.sender_identity != msg.sender_identity {
             return Err(E2EError::InvalidMessageFormat);
         }
 
-        // Verify signature first
+        // Verify signature against trusted sender identity
         let mut msg_to_sign = Vec::new();
-        let id_bytes = msg.sender_identity.serialize();
+        let id_bytes = self.sender_identity.serialize();
         msg_to_sign.extend_from_slice(&(id_bytes.len() as u32).to_le_bytes());
         msg_to_sign.extend_from_slice(&id_bytes);
         
@@ -315,7 +316,7 @@ impl SenderKeyReceiver {
         msg_to_sign.extend_from_slice(&msg.ciphertext);
         msg_to_sign.extend_from_slice(&msg.auth_tag);
 
-        if !msg.sender_identity.verify(&msg_to_sign, &msg.signature) {
+        if !self.sender_identity.verify(&msg_to_sign, &msg.signature) {
             return Err(E2EError::InvalidSignature);
         }
 
@@ -324,19 +325,28 @@ impl SenderKeyReceiver {
         let mut iv = [0u8; 12];
         
         if msg.iteration < self.chain.iteration {
-            return Err(E2EError::MessageOutOfOrder); // We don't implement skipped keys storage here for simplicity, but could.
+            return Err(E2EError::MessageOutOfOrder);
         }
 
-        while self.chain.iteration <= msg.iteration {
-            let res = self.chain.next_message_key();
+        // Prevent CPU exhaustion DoS attacks by capping the number of allowed skipped iterations.
+        if msg.iteration.saturating_sub(self.chain.iteration) > 2000 {
+            return Err(E2EError::MessageOutOfOrder);
+        }
+
+        // Atomic advancement: use a temporary chain copy so failed decryptions do not corrupt state
+        let mut temp_chain = self.chain.clone();
+        while temp_chain.iteration <= msg.iteration {
+            let res = temp_chain.next_message_key();
             key = res.0;
             iv = res.1;
         }
 
         let mut plaintext = vec![0u8; msg.ciphertext.len()];
-        aes256_gcm_decrypt(&key, &iv, &aad, &msg.ciphertext, &msg.auth_tag, &mut plaintext)
-            .map_err(|_| E2EError::DecryptionError)?;
+        if aes256_gcm_decrypt(&key, &iv, &aad, &msg.ciphertext, &msg.auth_tag, &mut plaintext).is_err() {
+            return Err(E2EError::DecryptionError);
+        }
         
+        self.chain = temp_chain;
         Ok(plaintext)
     }
 }
@@ -347,17 +357,18 @@ mod tests {
 
     #[test]
     fn test_sender_keys_roundtrip() {
+        use crate::ffi::block_on;
         let alice_identity = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
         
         let group_id = [9; 32];
         let seed = [10; 32];
         let mut context = SenderKeyContext::new(alice_identity, &group_id, &seed, 1);
         
-        let dist_msg = context.get_distribution_message();
+        let dist_msg = block_on(context.get_distribution_message());
         let mut receiver = SenderKeyReceiver::from_distribution_message(&dist_msg);
         
         let plaintext = b"Hello group members!";
-        let msg = context.encrypt(plaintext).unwrap();
+        let msg = block_on(context.encrypt(plaintext)).unwrap();
         
         let decrypted = receiver.decrypt(&msg).unwrap();
         assert_eq!(plaintext, &decrypted[..]);

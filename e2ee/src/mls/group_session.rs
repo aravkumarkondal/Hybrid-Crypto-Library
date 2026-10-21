@@ -10,6 +10,7 @@ pub struct HybridGroupSession {
     pub epoch_secret: [u8; 32],
     pub local_chain: SenderKeyChain,
     pub peer_chains: Vec<Option<SenderKeyChain>>,
+    pub past_peer_chains: Vec<SenderKeyChain>,
 }
 
 impl HybridGroupSession {
@@ -22,6 +23,7 @@ impl HybridGroupSession {
             epoch_secret: initial_epoch_secret,
             local_chain: SenderKeyChain::new(&[0u8; 32], 0),
             peer_chains: Vec::new(),
+            past_peer_chains: Vec::new(),
         };
         session.peer_chains.resize(n as usize, None);
         session.rotate_epoch(initial_epoch_secret);
@@ -47,6 +49,12 @@ impl HybridGroupSession {
             if i == self.member_index {
                 self.local_chain = chain;
             } else {
+                if let Some(old_chain) = self.peer_chains[i as usize].take() {
+                    if self.past_peer_chains.len() > 100 {
+                        self.past_peer_chains.remove(0);
+                    }
+                    self.past_peer_chains.push(old_chain);
+                }
                 self.peer_chains[i as usize] = Some(chain);
             }
         }

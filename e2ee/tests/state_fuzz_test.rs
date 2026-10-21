@@ -1,7 +1,6 @@
 extern crate alloc;
 
-use e2ee::state::{DoubleRatchetState, SessionState, SkippedKeyState};
-use e2ee::serialization::Serialize;
+use e2ee::state::{DoubleRatchetState, SessionState, SkippedKeyState, PastEpochState};
 
 fn create_valid_state() -> SessionState {
     let ratchet = DoubleRatchetState {
@@ -25,7 +24,11 @@ fn create_valid_state() -> SessionState {
                 iv: [16; 12],
             }
         ],
-        past_dh_recv_publics: alloc::vec![[17; 32]],
+        past_epochs: alloc::vec![PastEpochState {
+            dh_recv_public: [17; 32],
+            recv_chain_key: [18; 32],
+            recv_msg_num: 19,
+        }],
     };
 
     SessionState::new(ratchet, Some([18; 1088]))
@@ -34,12 +37,12 @@ fn create_valid_state() -> SessionState {
 #[test]
 fn test_state_fuzzing_truncations() {
     let state = create_valid_state();
-    let valid_bytes = state.serialize();
+    let valid_bytes = state.serialize_secure(&[0u8; 32]);
     
     // Test every possible truncation
     for len in 0..valid_bytes.len() {
         let truncated = &valid_bytes[..len];
-        let res = SessionState::deserialize(truncated);
+        let res = SessionState::deserialize_secure(truncated, &[0u8; 32]);
         assert!(res.is_err(), "Deserialization should fail for length {}", len);
     }
 }
@@ -47,14 +50,14 @@ fn test_state_fuzzing_truncations() {
 #[test]
 fn test_state_fuzzing_corruptions() {
     let state = create_valid_state();
-    let valid_bytes = state.serialize();
+    let valid_bytes = state.serialize_secure(&[0u8; 32]);
     
     // Corrupt one byte at a time
     for i in 0..valid_bytes.len() {
         let mut corrupted = valid_bytes.clone();
         corrupted[i] ^= 0xFF; // Flip all bits in the byte
         
-        let res = SessionState::deserialize(&corrupted);
+        let res = SessionState::deserialize_secure(&corrupted, &[0u8; 32]);
         assert!(res.is_err(), "Deserialization should fail when byte {} is corrupted", i);
     }
 }
@@ -62,7 +65,7 @@ fn test_state_fuzzing_corruptions() {
 #[test]
 fn test_state_fuzzing_invalid_version() {
     let state = create_valid_state();
-    let mut bytes = state.serialize();
+    let mut bytes = state.serialize_secure(&[0u8; 32]);
     
     // Version is at offset 0, it's 4 bytes
     bytes[0] ^= 0x02; // Change version
@@ -77,7 +80,7 @@ fn test_state_fuzzing_invalid_version() {
     let len = bytes.len();
     bytes[len - 32..].copy_from_slice(&checksum);
     
-    let res = SessionState::deserialize(&bytes);
+    let res = SessionState::deserialize_secure(&bytes, &[0u8; 32]);
     assert!(res.is_err());
 }
 
@@ -95,21 +98,25 @@ fn test_state_fuzzing_excessive_skipped_keys() {
         });
     }
     
-    let bytes = state.serialize();
-    let res = SessionState::deserialize(&bytes);
+    let bytes = state.serialize_secure(&[0u8; 32]);
+    let res = SessionState::deserialize_secure(&bytes, &[0u8; 32]);
     assert!(res.is_err(), "Should reject states with > 2000 skipped keys");
 }
 
 #[test]
-fn test_state_fuzzing_excessive_past_dhs() {
+fn test_state_fuzzing_excessive_past_epochs() {
     let mut state = create_valid_state();
     
     // Add 101 past DH keys
     for _ in 0..101 {
-        state.ratchet.past_dh_recv_publics.push([0; 32]);
+        state.ratchet.past_epochs.push(PastEpochState {
+            dh_recv_public: [0; 32],
+            recv_chain_key: [0; 32],
+            recv_msg_num: 0,
+        });
     }
     
-    let bytes = state.serialize();
-    let res = SessionState::deserialize(&bytes);
-    assert!(res.is_err(), "Should reject states with > 100 past DH publics");
+    let bytes = state.serialize_secure(&[0u8; 32]);
+    let res = SessionState::deserialize_secure(&bytes, &[0u8; 32]);
+    assert!(res.is_err(), "Should reject states with > 100 past epochs");
 }

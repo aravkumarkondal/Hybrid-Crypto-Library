@@ -13,14 +13,15 @@ const fn gf_add(a: u8, b: u8) -> u8 {
 fn gf_mul(mut a: u8, mut b: u8) -> u8 {
     let mut p = 0;
     for _ in 0..8 {
-        if b & 1 != 0 {
-            p ^= a;
-        }
-        let hi_bit_set = (a & 0x80) != 0;
+        let mask = 0u8.wrapping_sub(b & 1);
+        p ^= a & mask;
+
+        let hi_bit_set = a >> 7;
+        let mask2 = 0u8.wrapping_sub(hi_bit_set);
+        
         a <<= 1;
-        if hi_bit_set {
-            a ^= (GF256_POLY & 0xFF) as u8;
-        }
+        a ^= ((GF256_POLY & 0xFF) as u8) & mask2;
+        
         b >>= 1;
     }
     p

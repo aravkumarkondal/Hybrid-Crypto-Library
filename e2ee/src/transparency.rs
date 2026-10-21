@@ -101,26 +101,47 @@ impl KeyTransparencyLog {
     pub fn verify_inclusion(
         payload: &[u8],
         mut index: usize,
+        mut tree_size: usize,
         proof: &[MerkleNode],
         expected_root: &MerkleNode,
     ) -> bool {
+        if index >= tree_size {
+            return false;
+        }
+
         let mut hasher = Sha256::new();
         hasher.update(b"0x00");
         hasher.update(payload);
         let mut current_hash = hasher.finalize();
 
-        for sibling in proof {
-            let mut hasher = Sha256::new();
-            hasher.update(b"0x01");
-            if index.is_multiple_of(2) {
-                hasher.update(&current_hash);
-                hasher.update(&sibling.0);
+        let mut proof_iter = proof.iter();
+
+        while tree_size > 1 {
+            if index == tree_size - 1 && tree_size % 2 == 1 {
+                // Node is promoted without hashing
             } else {
-                hasher.update(&sibling.0);
-                hasher.update(&current_hash);
+                let sibling = match proof_iter.next() {
+                    Some(s) => s,
+                    None => return false,
+                };
+
+                let mut hasher = Sha256::new();
+                hasher.update(b"0x01");
+                if index % 2 == 0 {
+                    hasher.update(&current_hash);
+                    hasher.update(&sibling.0);
+                } else {
+                    hasher.update(&sibling.0);
+                    hasher.update(&current_hash);
+                }
+                current_hash = hasher.finalize();
             }
-            current_hash = hasher.finalize();
             index /= 2;
+            tree_size = (tree_size + 1) / 2;
+        }
+
+        if proof_iter.next().is_some() {
+            return false;
         }
 
         current_hash == expected_root.0

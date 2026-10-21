@@ -6,6 +6,7 @@ use hybrid_crypto::hkdf::{hkdf_extract, hkdf_expand};
 use crate::identity::IdentityKeyPair;
 use crate::prekeys::{PreKeyBundle, SignedPreKeyPair, OneTimePreKeyPair};
 use crate::errors::E2EError;
+use crate::serialization::Serialize;
 
 pub struct HybridX3DH;
 
@@ -23,7 +24,7 @@ pub struct ResponderOutput {
 impl HybridX3DH {
     /// Initiator performs X3DH to compute the initial root key.
     /// Returns the root key and the ephemeral data that must be sent to the responder.
-    pub fn initiator_step(
+    pub async fn initiator_step(
         initiator_identity: &IdentityKeyPair,
         initiator_ecc_ephemeral_entropy: &[u8; 32],
         pqc_entropy_spk: &[u8; 32],
@@ -36,7 +37,7 @@ impl HybridX3DH {
         let ek_a_pub = x25519_base(&ek_a);
 
         // DH1 = DH(IK_A, SPK_B)
-        let mut dh1 = initiator_identity.ecdh(&responder_bundle.signed_prekey_ecc_public)?;
+        let mut dh1 = initiator_identity.ecdh(&responder_bundle.signed_prekey_ecc_public).await?;
         
         // DH2 = DH(EK_A, IK_B)
         let mut dh2 = x25519(&ek_a, &responder_bundle.identity_key.ecc_public)
@@ -52,9 +53,10 @@ impl HybridX3DH {
             pqc_entropy_spk,
         ).map_err(|_| E2EError::InvalidPreKeyBundle)?;
 
-        // KDF Context
         let mut kdf_input = Vec::new();
         kdf_input.extend_from_slice(&[0xFF; 32]);
+        kdf_input.extend_from_slice(&initiator_identity.public_key().await.serialize());
+        kdf_input.extend_from_slice(&responder_bundle.identity_key.serialize());
         kdf_input.extend_from_slice(&dh1);
         kdf_input.extend_from_slice(&dh2);
         kdf_input.extend_from_slice(&dh3);
@@ -102,11 +104,12 @@ impl HybridX3DH {
     }
 
     /// Responder computes the root key from the initiator's ephemeral data.
-    pub fn responder_step(
+    pub async fn responder_step(
         responder_identity: &IdentityKeyPair,
         responder_spk: &SignedPreKeyPair,
         responder_opk: Option<&OneTimePreKeyPair>,
         initiator_identity_ecc_pub: &[u8; 32],
+        initiator_identity_pqc_pub: &[u8],
         initiator_ecc_ephemeral_public: &[u8; 32],
         pqc_ciphertext_spk: &[u8; 1088],
         pqc_ciphertext_opk: Option<&[u8; 1088]>,
@@ -120,7 +123,7 @@ impl HybridX3DH {
             .map_err(|_| E2EError::InvalidPreKeyBundle)?;
         
         // DH2 = DH(IK_B, EK_A)
-        let mut dh2 = responder_identity.ecdh(ek_a)?;
+        let mut dh2 = responder_identity.ecdh(ek_a).await?;
         
         // DH3 = DH(SPK_B, EK_A)
         let mut dh3 = x25519(&responder_spk.ecc_private, ek_a)
@@ -130,7 +133,13 @@ impl HybridX3DH {
         let mut pq_ss1 = ml_kem_768_decapsulate(&responder_spk.pqc_private, pqc_ciphertext_spk);
 
         let mut kdf_input = Vec::new();
+        let initiator_pub = crate::identity::IdentityPublicKey {
+            ecc_public: *ik_a,
+            pqc_public: initiator_identity_pqc_pub.to_vec(),
+        };
         kdf_input.extend_from_slice(&[0xFF; 32]);
+        kdf_input.extend_from_slice(&initiator_pub.serialize());
+        kdf_input.extend_from_slice(&responder_identity.public_key().await.serialize());
         kdf_input.extend_from_slice(&dh1);
         kdf_input.extend_from_slice(&dh2);
         kdf_input.extend_from_slice(&dh3);
@@ -146,6 +155,8 @@ impl HybridX3DH {
                 let mut pq_ss2 = ml_kem_768_decapsulate(&opk.pqc_private, ct_opk);
                 kdf_input.extend_from_slice(&pq_ss2);
                 zeroize(&mut pq_ss2);
+            } else {
+                return Err(E2EError::MissingOneTimePreKey);
             }
         }
 

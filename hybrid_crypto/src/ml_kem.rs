@@ -253,13 +253,16 @@ pub fn sample_ntt(rho: &[u8; 32], i: u8, j: u8, a: &mut [i16; 256]) {
         let d1 = b0 | ((b1 & 0x0F) << 8);
         let d2 = (b1 >> 4) | (b2 << 4);
         
-        if d1 < 3329 {
+        let valid1 = (d1 < 3329) as usize;
+        if count < 256 {
             a[count] = d1 as i16;
-            count += 1;
+            count += valid1;
         }
-        if count < 256 && d2 < 3329 {
+        
+        let valid2 = (d2 < 3329) as usize;
+        if count < 256 {
             a[count] = d2 as i16;
-            count += 1;
+            count += valid2;
         }
     }
 }

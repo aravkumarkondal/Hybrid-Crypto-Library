@@ -1,8 +1,5 @@
-use alloc::vec::Vec;
 use crate::CryptoError;
 use crate::ml_kem::{ml_kem_768_keypair, ml_kem_768_encapsulate, ml_kem_768_decapsulate};
-#[cfg(feature = "ml-dsa")]
-use crate::ml_dsa::{ml_dsa_87_keypair, ml_dsa_87_sign, ml_dsa_87_verify};
 use crate::x25519::{x25519_base, x25519};
 
 pub trait CryptoProvider {

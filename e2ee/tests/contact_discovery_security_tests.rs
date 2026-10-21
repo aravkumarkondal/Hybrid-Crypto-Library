@@ -8,11 +8,11 @@ use e2ee::prekeys::PreKeyBundle;
 fn setup_sessions() -> (Session, Session) {
     let alice_identity = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
     let bob_identity = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
-    let bob_spk = e2ee::prekeys::SignedPreKeyPair::generate(1, &[5; 32], &[6; 64], &bob_identity, &[7; 32]).unwrap();
+    let bob_spk = futures::executor::block_on(e2ee::prekeys::SignedPreKeyPair::generate(1, &[5; 32], &[6; 64], &bob_identity, &[7; 32])).unwrap();
     let bob_opk = e2ee::prekeys::OneTimePreKeyPair::generate(1, &[7; 32], &[8; 64]);
 
     let bob_bundle = PreKeyBundle {
-        identity_key: bob_identity.public_key(),
+        identity_key: futures::executor::block_on(bob_identity.public_key()),
         signed_prekey_ecc_public: bob_spk.ecc_public,
         signed_prekey_pqc_public: bob_spk.pqc_public.clone(),
         signed_prekey_signature: bob_spk.signature.clone(),
@@ -22,7 +22,7 @@ fn setup_sessions() -> (Session, Session) {
         one_time_prekey_id: Some(bob_opk.id),
     };
 
-    let (alice_session, prekey_msg, _init_msg) = Session::setup_as_initiator(
+    let (alice_session, prekey_msg, _init_msg) = futures::executor::block_on(Session::setup_as_initiator(
         &alice_identity,
         &bob_bundle,
         &[10; 32],
@@ -31,14 +31,14 @@ fn setup_sessions() -> (Session, Session) {
         &[13; 32],
         &[14; 64],
         &[15; 32],
-    ).unwrap();
+    )).unwrap();
 
-    let mut bob_session = Session::setup_as_responder(
+    let mut bob_session = futures::executor::block_on(Session::setup_as_responder(
         &bob_identity,
         &bob_spk,
         Some(&bob_opk),
         &prekey_msg,
-    ).unwrap();
+    )).unwrap();
 
     // Bob must receive the initial message to sync ratchets
     bob_session.receive_initial_message(

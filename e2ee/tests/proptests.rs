@@ -86,7 +86,7 @@ proptest! {
         let seed = [10; 32];
         
         let mut context = SenderKeyContext::new(alice_identity, &group_id, &seed, 1);
-        let dist_msg = context.get_distribution_message();
+        let dist_msg = futures::executor::block_on(context.get_distribution_message());
         let mut receiver = SenderKeyReceiver::from_distribution_message(&dist_msg);
         
         // Advance the context by `gap` messages
@@ -95,7 +95,7 @@ proptest! {
         }
         
         // Encrypt the actual message
-        let msg = context.encrypt(&plaintext).unwrap();
+        let msg = futures::executor::block_on(context.encrypt(&plaintext)).unwrap();
         
         // Receiver should decrypt it correctly, skipping the gap
         let decrypted = receiver.decrypt(&msg).unwrap();

@@ -25,7 +25,7 @@ impl Drop for Session {
 impl Session {
     /// Setup a new session as the Initiator (Alice)
     #[allow(clippy::too_many_arguments)]
-    pub fn setup_as_initiator(
+    pub async fn setup_as_initiator(
         my_identity: &IdentityKeyPair,
         peer_bundle: &PreKeyBundle,
         my_ecc_ephemeral_entropy: &[u8; 32],
@@ -42,7 +42,7 @@ impl Session {
             my_kem_entropy_spk,
             my_kem_entropy_opk,
             peer_bundle,
-        )?;
+        ).await?;
 
         let (mut ratchet, init_kem_ct) = DoubleRatchet::init_alice(
             x3dh_out.root_key,
@@ -69,13 +69,15 @@ impl Session {
             &iv,
             header,
             b"",
+            &[],
         );
 
+        let my_pub = my_identity.public_key().await;
         let prekey_message = PreKeyMessage {
             prekey_id: peer_bundle.one_time_prekey_id,
             signed_prekey_id: peer_bundle.signed_prekey_id,
-            initiator_identity_ecc_public: my_identity.public_key().ecc_public,
-            initiator_identity_pqc_public: my_identity.public_key().pqc_public,
+            initiator_identity_ecc_public: my_pub.ecc_public,
+            initiator_identity_pqc_public: my_pub.pqc_public,
             initiator_ephemeral_ecc_public: x3dh_out.initiator_ecc_ephemeral_public,
             pqc_ciphertext_spk: x3dh_out.pqc_ciphertext_spk,
             pqc_ciphertext_opk: x3dh_out.pqc_ciphertext_opk,
@@ -86,7 +88,7 @@ impl Session {
     }
 
     /// Setup a new session as the Responder (Bob) upon receiving a `PreKeyMessage`
-    pub fn setup_as_responder(
+    pub async fn setup_as_responder(
         my_identity: &IdentityKeyPair,
         my_spk: &SignedPreKeyPair,
         my_opk: Option<&OneTimePreKeyPair>,
@@ -98,10 +100,11 @@ impl Session {
             my_spk,
             my_opk,
             &prekey_msg.initiator_identity_ecc_public,
+            &prekey_msg.initiator_identity_pqc_public,
             &prekey_msg.initiator_ephemeral_ecc_public,
             &prekey_msg.pqc_ciphertext_spk,
             prekey_msg.pqc_ciphertext_opk.as_ref(),
-        )?;
+        ).await?;
 
         let ratchet = DoubleRatchet::init_bob(
             x3dh_out.root_key,
@@ -148,7 +151,7 @@ impl Session {
             message_number: self.ratchet.send_msg_num() - 1,
         };
 
-        Ok(Message::encrypt(&key, &iv, header, plaintext))
+        Ok(Message::encrypt(&key, &iv, header, plaintext, &[]))
     }
 
     pub fn decrypt_message(
@@ -158,7 +161,10 @@ impl Session {
         my_new_kem_entropy: &[u8; 64],
         my_new_kem_encaps_entropy: &[u8; 32],
     ) -> Result<Vec<u8>, E2EError> {
-        let (key, iv, new_kem_ct) = self.ratchet.read_recv_key(
+        let saved_ratchet = self.ratchet.clone();
+        let saved_pending = self.pending_kem_ciphertext;
+
+        let (key, iv, new_kem_ct) = match self.ratchet.read_recv_key(
             &message.header.dh_public,
             message.header.message_number,
             message.header.previous_chain_length,
@@ -167,31 +173,43 @@ impl Session {
             my_new_dh_entropy,
             my_new_kem_entropy,
             my_new_kem_encaps_entropy,
-        )?;
+        ) {
+            Ok(res) => res,
+            Err(e) => {
+                self.ratchet = saved_ratchet;
+                self.pending_kem_ciphertext = saved_pending;
+                return Err(e);
+            }
+        };
 
         if let Some(ct) = new_kem_ct {
             self.pending_kem_ciphertext = Some(ct);
         }
 
-        let plaintext = message.decrypt(&key, &iv)?;
-
-        Ok(plaintext)
+        match message.decrypt(&key, &iv, &[]) {
+            Ok(plaintext) => Ok(plaintext.to_vec()),
+            Err(e) => {
+                self.ratchet = saved_ratchet;
+                self.pending_kem_ciphertext = saved_pending;
+                Err(e)
+            }
+        }
     }
 
-    #[must_use]
-    pub fn export(&self) -> SessionState {
-        SessionState::new(
+    pub fn export_state(&self, master_key: &[u8; 32]) -> Vec<u8> {
+        let state = SessionState::new(
             self.ratchet.export(),
             self.pending_kem_ciphertext,
-        )
+        );
+        state.serialize_secure(master_key)
     }
 
-    #[must_use]
-    pub fn restore(state: &SessionState) -> Self {
-        Self {
+    pub fn restore_state(data: &[u8], master_key: &[u8; 32]) -> Result<Self, E2EError> {
+        let state = SessionState::deserialize_secure(data, master_key)?;
+        Ok(Self {
             ratchet: DoubleRatchet::restore(&state.ratchet),
             pending_kem_ciphertext: state.pending_kem_ciphertext,
-        }
+        })
     }
 }
 
@@ -245,8 +263,8 @@ impl Serialize for MultiDeviceSession {
         for (device_id, session) in &self.sessions {
             out.extend_from_slice(&device_id.to_le_bytes());
             
-            let state = session.export();
-            let session_bytes = state.serialize();
+            let master_key = [0x55; 32];
+            let session_bytes = session.export_state(&master_key);
             out.extend_from_slice(&(session_bytes.len() as u32).to_le_bytes());
             out.extend_from_slice(&session_bytes);
         }
@@ -287,8 +305,8 @@ impl Serialize for MultiDeviceSession {
             offset += 4;
 
             if offset + session_bytes_len > data.len() { return Err(E2EError::InvalidMessageFormat); }
-            let state = SessionState::deserialize(&data[offset..offset+session_bytes_len])?;
-            let session = Session::restore(&state);
+            let master_key = [0x55; 32];
+            let session = Session::restore_state(&data[offset..offset+session_bytes_len], &master_key)?;
             sessions.push((device_id, session));
             offset += session_bytes_len;
         }

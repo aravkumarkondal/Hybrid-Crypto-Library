@@ -9,8 +9,8 @@ fn test_fingerprint_generation_and_formatting() {
     let device2 = IdentityKeyPair::generate(&[5; 32], &[6; 32]);
 
     // Test determinism and order independence
-    let fp1 = Fingerprint::compute(&account.public_key(), &[device1.public_key(), device2.public_key()]);
-    let fp2 = Fingerprint::compute(&account.public_key(), &[device2.public_key(), device1.public_key()]);
+    let fp1 = Fingerprint::compute(&futures::executor::block_on(account.public_key()), &[futures::executor::block_on(device1.public_key()), futures::executor::block_on(device2.public_key())]);
+    let fp2 = Fingerprint::compute(&futures::executor::block_on(account.public_key()), &[futures::executor::block_on(device2.public_key()), futures::executor::block_on(device1.public_key())]);
     
     assert_eq!(fp1.hash, fp2.hash, "Fingerprint must be independent of device order.");
 
@@ -28,6 +28,6 @@ fn test_fingerprint_generation_and_formatting() {
 
     // Test collision resistance (different account/devices produce different fingerprints)
     let account_b = IdentityKeyPair::generate(&[7; 32], &[8; 32]);
-    let fp3 = Fingerprint::compute(&account_b.public_key(), &[device1.public_key(), device2.public_key()]);
+    let fp3 = Fingerprint::compute(&futures::executor::block_on(account_b.public_key()), &[futures::executor::block_on(device1.public_key()), futures::executor::block_on(device2.public_key())]);
     assert_ne!(fp1.hash, fp3.hash, "Different accounts must yield different fingerprints");
 }

@@ -46,3 +46,13 @@ Cargo.lock
 /rewrite_*.py
 /revert.py
 /gen_mldsa_zetas.py
+
+# macOS metadata and logs
+._*
+**/._*
+**/.DS_Store
+*.log
+**/*.log
+scratch.py
+test_aes_gcm.rs
+cargo_tree*.txt

@@ -19,7 +19,11 @@ pub fn sign(message: &[u8], private_key: &SecretKey, rnd: &[u8; 32]) -> Result<V
     ml_dsa_87_sign(private_key, message, &[], rnd)
 }
 
-pub fn verify(message: &[u8], signature: &Vec<u8>, public_key: &Vec<u8>) -> bool {
+pub fn verify(message: &[u8], signature: &[u8], public_key: &[u8]) -> bool {
+    // We only support ML-DSA-87 in this wrapper
+    if public_key.len() != 2592 {
+        return false;
+    }
     ml_dsa_87_verify(public_key, message, &[], signature)
 }
 

@@ -6,7 +6,7 @@ fn test_device_certification_and_list() {
     // 1. Setup Alice's Account
     let account_keys = IdentityKeyPair::generate(&[1; 32], &[2; 32]);
     let account = AccountIdentity::new(account_keys);
-    let account_pub = account.root_key.public_key();
+    let account_pub = futures::executor::block_on(account.root_key.public_key());
 
     // 2. Setup Alice's Phone
     let phone_keys = IdentityKeyPair::generate(&[3; 32], &[4; 32]);
@@ -18,20 +18,20 @@ fn test_device_certification_and_list() {
 
     // 4. Certify devices
     let rnd1 = [9; 32];
-    let phone_sig = account.certify_device(&phone.public_key(), &rnd1).expect("Failed to sign");
+    let phone_sig = futures::executor::block_on(account.certify_device(&futures::executor::block_on(phone.public_key()), &rnd1)).expect("Failed to sign");
     
     let rnd2 = [10; 32];
-    let laptop_sig = account.certify_device(&laptop.public_key(), &rnd2).expect("Failed to sign");
+    let laptop_sig = futures::executor::block_on(account.certify_device(&futures::executor::block_on(laptop.public_key()), &rnd2)).expect("Failed to sign");
 
     let reg_phone = DeviceRegistration {
         device_id: phone.device_id,
-        device_pub: phone.public_key(),
+        device_pub: futures::executor::block_on(phone.public_key()),
         signature: phone_sig,
     };
 
     let reg_laptop = DeviceRegistration {
         device_id: laptop.device_id,
-        device_pub: laptop.public_key(),
+        device_pub: futures::executor::block_on(laptop.public_key()),
         signature: laptop_sig,
     };
 
@@ -59,7 +59,7 @@ fn test_device_certification_and_list() {
         payload.extend_from_slice(&dev.signature.0);
     }
     
-    let sig_v1 = account.root_key.sign(&payload, &rnd1).unwrap();
+    let sig_v1 = futures::executor::block_on(account.root_key.sign(&payload, &rnd1)).unwrap();
     v1.signature = sig_v1;
 
     assert!(v1.verify());
@@ -84,7 +84,7 @@ fn test_device_certification_and_list() {
         payload2.extend_from_slice(&dev.signature.0);
     }
 
-    let sig_v2 = account.root_key.sign(&payload2, &rnd2).unwrap();
+    let sig_v2 = futures::executor::block_on(account.root_key.sign(&payload2, &rnd2)).unwrap();
     v2.signature = sig_v2;
 
     assert!(v2.verify());

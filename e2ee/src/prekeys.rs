@@ -50,7 +50,7 @@ pub struct PreKeyBundle {
 }
 
 impl SignedPreKeyPair {
-    pub fn generate(
+    pub async fn generate(
         id: u32,
         entropy_ecc: &[u8; 32],
         entropy_pqc: &[u8; 64],
@@ -64,7 +64,7 @@ impl SignedPreKeyPair {
         data_to_sign.extend_from_slice(&ecc_public);
         data_to_sign.extend_from_slice(&pqc_public);
 
-        let signature = identity_key.sign(&data_to_sign, sign_rnd)?;
+        let signature = identity_key.sign(&data_to_sign, sign_rnd).await?;
 
         Ok(Self {
             id,

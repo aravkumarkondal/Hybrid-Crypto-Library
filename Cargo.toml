@@ -1,11 +1,21 @@
 [workspace]
-members = ["compliance_suite","cpu","e2ee", "gpu",
-    "hybrid_crypto", "wasm_api", "compliance_suite"
-, "apple_keystore", "windows_keystore", "linux_keystore", "web_keystore"]
+members = [
+    "compliance_suite",
+    "cpu",
+    "e2ee",
+    "gpu",
+    "hybrid_crypto",
+    "wasm_api",
+    "apple_software_keystore",
+    "windows_software_keystore",
+    "linux_software_keystore",
+    "web_keystore",
+]
 resolver = "2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [workspace.lints.clippy]
 all = "warn"

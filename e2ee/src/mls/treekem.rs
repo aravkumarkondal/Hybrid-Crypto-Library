@@ -65,9 +65,9 @@ impl Node {
         let dh_shared = x25519(&priv_key.ecc_private, ephemeral_ecc_public).map_err(|_| E2EError::DecryptionError)?;
         let kem_shared = ml_kem_768_decapsulate(&priv_key.pqc_private, kem_ct);
         
-        let mut kdf_input = Vec::new();
-        kdf_input.extend_from_slice(&dh_shared);
-        kdf_input.extend_from_slice(&kem_shared);
+        let mut kdf_input = [0u8; 64];
+        kdf_input[0..32].copy_from_slice(&dh_shared);
+        kdf_input[32..64].copy_from_slice(&kem_shared);
 
         let mut hasher = Sha256::new();
         hasher.update(&kdf_input);
@@ -76,15 +76,15 @@ impl Node {
         let mut aes_key = [0u8; 32];
         hkdf_expand(&prk, b"TREEKEM_NODE_KEY", &mut aes_key);
 
-        if ciphertext.len() < 16 {
+        if ciphertext.len() != 48 { // 32 byte secret + 16 byte tag
             return Err(E2EError::InvalidMessageFormat);
         }
         
-        let ct = &ciphertext[..ciphertext.len() - 16];
+        let ct = &ciphertext[..32];
         let mut auth_tag = [0u8; 16];
-        auth_tag.copy_from_slice(&ciphertext[ciphertext.len() - 16..]);
+        auth_tag.copy_from_slice(&ciphertext[32..]);
         
-        let mut secret = hybrid_crypto::utils::SecretKey(alloc::vec![0u8; ct.len()]);
+        let mut secret = hybrid_crypto::utils::ZeroizingArray::new([0u8; 32]);
         
         aes256_gcm_decrypt(
             &aes_key,
@@ -92,12 +92,10 @@ impl Node {
             b"",
             ct,
             &auth_tag,
-            &mut secret,
+            &mut *secret,
         ).map_err(|_| E2EError::DecryptionError)?;
 
-        let mut result = [0u8; 32];
-        result.copy_from_slice(&secret.0);
-        Ok(result)
+        Ok(*secret)
     }
 }
 
@@ -277,16 +275,21 @@ impl TreeKEM {
     /// that currently hold public keys covering this subtree.
     #[must_use]
     pub fn resolve(&self, x: u32, n: u32) -> Vec<u32> {
+        let mut res = Vec::new();
+        self.resolve_into(x, n, &mut res);
+        res
+    }
+
+    fn resolve_into(&self, x: u32, n: u32, out: &mut Vec<u32>) {
         if self.nodes[x as usize].public_key.is_some() {
-            return alloc::vec![x];
+            out.push(x);
+            return;
         }
         if Self::is_leaf(x) {
-            return alloc::vec![];
+            return;
         }
-        let mut res = Vec::new();
-        res.extend(self.resolve(Self::left(x), n));
-        res.extend(self.resolve(Self::right(x, n), n));
-        res
+        self.resolve_into(Self::left(x), n, out);
+        self.resolve_into(Self::right(x, n), n, out);
     }
 
     /// Adds a leaf to the tree and returns its index. 
@@ -446,12 +449,6 @@ impl TreeKEM {
             return Err(E2EError::InvalidMessageFormat);
         }
 
-        // Apply public keys from the update path to our tree
-        for i in 0..path.nodes.len() {
-            let parent_idx = dirpath[i + 1] as usize;
-            self.nodes[parent_idx].public_key = Some(path.nodes[i].public_key.clone());
-        }
-
         // Find the overlap where we can decrypt the path secret
         let mut decrypted_secret = None;
         let mut overlap_index = 0;
@@ -482,11 +479,12 @@ impl TreeKEM {
             }
         }
 
+        let mut derived_private_keys = Vec::new();
+
         if let Some(mut current_secret) = decrypted_secret {
             // We decrypted the secret for dirpath[overlap_index + 1]
             // We now derive and store private keys from this point up to the root
             for i in overlap_index..(dirpath.len() - 1) {
-                let parent_idx = dirpath[i + 1] as usize;
                 let parent_keypair = Self::derive_keypair(&current_secret);
                 
                 // Verify public key matches
@@ -495,12 +493,25 @@ impl TreeKEM {
                     return Err(E2EError::DecryptionError);
                 }
 
-                self.nodes[parent_idx].private_key = Some(parent_keypair);
+                derived_private_keys.push((i, parent_keypair));
                 
                 if i < dirpath.len() - 2 {
                     current_secret = Self::derive_parent_secret(&current_secret);
                 }
             }
+        }
+
+        // --- ATOMIC COMMIT PHASE ---
+        // Apply public keys from the update path to our tree
+        for i in 0..path.nodes.len() {
+            let parent_idx = dirpath[i + 1] as usize;
+            self.nodes[parent_idx].public_key = Some(path.nodes[i].public_key.clone());
+        }
+        
+        // Apply derived private keys
+        for (i, priv_key) in derived_private_keys {
+            let parent_idx = dirpath[i + 1] as usize;
+            self.nodes[parent_idx].private_key = Some(priv_key);
         }
 
         // Note: The leaf node (dirpath[0])'s public key is updated via a separate mechanism (or we can include it in UpdatePath)

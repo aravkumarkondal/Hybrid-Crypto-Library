@@ -16,9 +16,9 @@ mod network_and_persistence_attacks {
     fn test_session_rollback_defense() {
         let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
         let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-        let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+        let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
         let bob_bundle = e2ee::prekeys::PreKeyBundle {
-            identity_key: bob_identity.public_key(),
+            identity_key: futures::executor::block_on(bob_identity.public_key()),
             signed_prekey_id: bob_spk.id,
             signed_prekey_ecc_public: bob_spk.ecc_public,
             signed_prekey_pqc_public: bob_spk.pqc_public.clone(),
@@ -32,7 +32,7 @@ mod network_and_persistence_attacks {
             &alice_identity, &bob_bundle, &[0x51; 32], &[0x52; 32], None, &[0x54; 32], &[0x55; 64], &[0x56; 32]
         ).unwrap();
         
-        let mut bob_session = Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg).unwrap();
+        let mut bob_session = futures::executor::block_on(Session::setup_as_responder(&bob_identity, &bob_spk, None, &prekey_msg)).unwrap();
         bob_session.receive_initial_message(&initial_msg, &[0x61; 32], &[0x62; 64], &[0x63; 32]).unwrap();
 
         use e2ee::serialization::Serialize;
@@ -79,13 +79,13 @@ mod network_and_persistence_attacks {
         
         // Attacker generates their own keys
         let attacker_identity = IdentityKeyPair::generate(&[0x91; 32], &[0x92; 32]);
-        let attacker_spk = SignedPreKeyPair::generate(1, &[0x93; 32], &[0x94; 64], &attacker_identity, &[0x95; 32]).unwrap();
+        let attacker_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x93; 32], &[0x94; 64], &attacker_identity, &[0x95; 32])).unwrap();
         
         // Attacker creates a bundle but puts Bob's Identity Key in it, hoping Alice won't notice
         // However, the signature inside the bundle was generated using the ATTACKER'S private key
         // because the attacker does not possess Bob's private key!
         let forged_bundle = e2ee::prekeys::PreKeyBundle {
-            identity_key: bob_identity.public_key(), // Spoofed Bob Identity
+            identity_key: futures::executor::block_on(bob_identity.public_key()), // Spoofed Bob Identity
             signed_prekey_id: attacker_spk.id,
             signed_prekey_ecc_public: attacker_spk.ecc_public,
             signed_prekey_pqc_public: attacker_spk.pqc_public.clone(),

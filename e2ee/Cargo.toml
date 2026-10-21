@@ -8,7 +8,9 @@ hybrid_crypto = { path = "../hybrid_crypto" }
 
 [dev-dependencies]
 criterion = "0.5"
+futures = "0.3.32"
 proptest = "1.11.0"
+tokio = { version = "1.52.3", features = ["full"] }
 
 [[bench]]
 name = "e2ee_benchmark"

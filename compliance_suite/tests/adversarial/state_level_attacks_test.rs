@@ -12,9 +12,9 @@ mod state_level_protocol_attacks {
     fn test_e2ee_key_compromise_impersonation_defense() {
         let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
         let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-        let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+        let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
         let bob_bundle = e2ee::prekeys::PreKeyBundle {
-            identity_key: bob_identity.public_key(),
+            identity_key: futures::executor::block_on(bob_identity.public_key()),
             signed_prekey_id: bob_spk.id,
             signed_prekey_ecc_public: bob_spk.ecc_public,
             signed_prekey_pqc_public: bob_spk.pqc_public.clone(),
@@ -81,9 +81,9 @@ mod state_level_protocol_attacks {
     fn test_e2ee_state_corruption_virus_tampering() {
         let alice_identity = IdentityKeyPair::generate(&[0x11; 32], &[0x12; 32]);
         let bob_identity = IdentityKeyPair::generate(&[0x21; 32], &[0x22; 32]);
-        let bob_spk = SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32]).unwrap();
+        let bob_spk = futures::executor::block_on(SignedPreKeyPair::generate(1, &[0x31; 32], &[0x32; 64], &bob_identity, &[0x33; 32])).unwrap();
         let bob_bundle = e2ee::prekeys::PreKeyBundle {
-            identity_key: bob_identity.public_key(),
+            identity_key: futures::executor::block_on(bob_identity.public_key()),
             signed_prekey_id: bob_spk.id,
             signed_prekey_ecc_public: bob_spk.ecc_public,
             signed_prekey_pqc_public: bob_spk.pqc_public.clone(),

@@ -146,7 +146,7 @@ impl Session {
         let header = MessageHeader {
             dh_public: self.ratchet.get_dh_send_public(),
             kem_public: self.ratchet.get_kem_send_public(),
-            kem_ciphertext: self.pending_kem_ciphertext.take().unwrap_or([0u8; 1088]),
+            kem_ciphertext: self.pending_kem_ciphertext.unwrap_or([0u8; 1088]),
             previous_chain_length: self.ratchet.prev_send_msg_num(),
             message_number: self.ratchet.send_msg_num() - 1,
         };

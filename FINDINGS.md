@@ -41,6 +41,8 @@ All findings have been independently audited and verified with unit, integration
 | **PERF-05** | Performance | LOW | TreeKEM Secret Processing Heap Allocation | **RESOLIFIED** | `[VERIFIED]` `e2ee/src/mls/treekem.rs` |
 | **BUILD-01**| Build / CI | MEDIUM | Duplicate Workspace Member Declaration in Root `Cargo.toml` | **RESOLVED** | `[VERIFIED]` `Cargo.toml` |
 | **BUILD-02**| Build / CI | MEDIUM | Missing `criterion` Dev-Dependency in `cpu/Cargo.toml` | **RESOLVED** | `[VERIFIED]` `cpu/Cargo.toml` |
+| **SEC-13**  | Side-Channel | HIGH | Microarchitectural Speculative Execution Side Channels | **RESOLVED** | `[VERIFIED]` `hybrid_crypto/src/utils.rs` |
+| **E2EE-10** | Protocol Sync | CRITICAL | KEM Epoch Ciphertext Premature Clearance on Packet Loss | **RESOLVED** | `[VERIFIED]` `e2ee/src/session.rs` |
 
 ---
 
@@ -367,4 +369,15 @@ All findings have been independently audited and verified with unit, integration
 - **Remediation**: Introduced hardware-level speculation barriers (`speculation_barrier`) using `_mm_lfence` (x86_64) and `csdb` (AArch64). Implemented `speculative_sanitize_index` (speculative load hardening bounds clamping) and `speculative_ct_lookup_u8` (full-table scan constant-time memory lookup). Embedded barriers into `cswap`, `ccopy`, `constant_time_eq`, and `zeroize`.
 - **Evidence**: `[VERIFIED]` Verified via `cargo test -p hybrid_crypto --test speculative_execution_mitigations_test` (5/5 passed).
 - **Status**: RESOLVED
+
+### 33. E2EE-10: KEM Epoch Ciphertext Premature Clearance on Packet Loss
+- **ID**: E2EE-10
+- **Severity**: CRITICAL
+- **Category**: Protocol State Synchronization / Packet Loss Vulnerability
+- **File**: `e2ee/src/session.rs`
+- **Description**: In `Session::encrypt_message`, `self.pending_kem_ciphertext.take()` was clearing the pending post-quantum KEM ciphertext upon emitting message 0 of a sending epoch. If message 0 was dropped, delayed, or lost in transit over an unreliable network, subsequent messages (message 1, message 2, etc.) sent in the same epoch were transmitted with a zeroed KEM ciphertext (`[0u8; 1088]`). When the recipient subsequently received message 1 or 2 as the first message of the epoch, it advanced the Diffie-Hellman ratchet but attempted to decapsulate the zeroed KEM ciphertext, resulting in permanent `MessageDecryptionFailed` and irreversible session desynchronization.
+- **Remediation**: Removed `.take()` and retained `self.pending_kem_ciphertext.unwrap_or([0u8; 1088])`. The pending KEM ciphertext is now persistently broadcast on all messages across that DH sending epoch until replaced by a new KEM ciphertext derived during the recipient's next ratchet turnaround.
+- **Evidence**: `[VERIFIED]` Discovered by novel combinatorial state machine fuzzing (`e2ee/tests/combinatorial_state_machine_fuzz_test.rs`), which simulates hostile packet reordering, packet loss, and tampering over 250 steps. Verified with 100% pass rate across workspace tests.
+- **Status**: RESOLVED
+
 

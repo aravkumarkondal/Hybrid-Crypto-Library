@@ -43,6 +43,7 @@ All findings have been independently audited and verified with unit, integration
 | **BUILD-02**| Build / CI | MEDIUM | Missing `criterion` Dev-Dependency in `cpu/Cargo.toml` | **RESOLVED** | `[VERIFIED]` `cpu/Cargo.toml` |
 | **SEC-13**  | Side-Channel | HIGH | Microarchitectural Speculative Execution Side Channels | **RESOLVED** | `[VERIFIED]` `hybrid_crypto/src/utils.rs` |
 | **E2EE-10** | Protocol Sync | CRITICAL | KEM Epoch Ciphertext Premature Clearance on Packet Loss | **RESOLVED** | `[VERIFIED]` `e2ee/src/session.rs` |
+| **MLS-01**  | Tree State | CRITICAL | TreeKEM Bounds Integer Overflow & Blind State Corruption | **RESOLVED** | `[VERIFIED]` `e2ee/src/mls/treekem.rs` |
 
 ---
 
@@ -379,5 +380,20 @@ All findings have been independently audited and verified with unit, integration
 - **Remediation**: Removed `.take()` and retained `self.pending_kem_ciphertext.unwrap_or([0u8; 1088])`. The pending KEM ciphertext is now persistently broadcast on all messages across that DH sending epoch until replaced by a new KEM ciphertext derived during the recipient's next ratchet turnaround.
 - **Evidence**: `[VERIFIED]` Discovered by novel combinatorial state machine fuzzing (`e2ee/tests/combinatorial_state_machine_fuzz_test.rs`), which simulates hostile packet reordering, packet loss, and tampering over 250 steps. Verified with 100% pass rate across workspace tests.
 - **Status**: RESOLVED
+
+### 34. MLS-01: TreeKEM Out-of-Bounds Integer Overflow & Silent Blind State Mutation
+- **ID**: MLS-01
+- **Severity**: CRITICAL
+- **Category**: Group Protocol Integrity / Memory & State Safety
+- **File**: `e2ee/src/mls/treekem.rs`
+- **Description**: Two distinct defects in `TreeKEM` allowed group corruption:
+  1. `TreeKEM::update` and `TreeKEM::process_update` lacked bounds checks on `leaf_index >= self.num_leaves`. Calling with out-of-range index caused `parent` LBBT calculation to loop with bit shifts $\ge 32$, causing debug-mode panic / runtime crash.
+  2. In `TreeKEM::process_update`, if an active group participant (with private keys) failed to decrypt any copath secret (due to network partition fork or truncated/tampered ciphertext), `process_update` did not abort. Instead, it silently applied the untrusted public keys to the tree without deriving private keys, leaving the member permanently blind and corrupting tree state.
+- **Remediation**:
+  1. Enforced `if leaf_index >= self.num_leaves { return Err(E2EError::InvalidMessageFormat); }` on both `update` and `process_update`.
+  2. Enforced transactional atomic commit: if the tree contains participant private keys and `decrypted_secret.is_none()`, immediately return `Err(E2EError::DecryptionError)` without mutating `self.nodes`.
+- **Evidence**: `[VERIFIED]` Discovered and verified by `e2ee/tests/mls_partition_healing_fuzz_test.rs` (3/3 passed).
+- **Status**: RESOLVED
+
 
 

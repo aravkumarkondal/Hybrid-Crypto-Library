@@ -17,7 +17,7 @@
 ### 1. Is it known to be error-free? Explain the limits of that conclusion.
 **Answer: NO.**  
 It is **not** known to be error-free, and claiming so would be scientifically false.  
-- While all 33 discovered defects have been resolved and verified through automated regression suites, unit tests, and property-based fuzz tests, testing can only demonstrate the presence of bugs, never their absolute absence (Dijkstra's principle).
+- While all 34 discovered defects have been resolved and verified through automated regression suites, unit tests, and property-based fuzz tests, testing can only demonstrate the presence of bugs, never their absolute absence (Dijkstra's principle).
 - Formal theorem proving (Kani) is currently scoped to discrete mathematical functions; SIMD and GPU kernel execution paths lack end-to-end formal mathematical proofs of panic-freedom across arbitrary memory interleavings.
 
 ### 2. Is it 100% secure? Answer honestly.
@@ -86,6 +86,19 @@ To exhaustively stress the cryptographic and protocol invariants beyond standard
 5. **Zero-Allocation & Heap Determinism Stress Suite** (`e2ee/tests/zero_allocation_determinism_test.rs`):
    - Integrated custom `TrackingAllocator` (`#[global_allocator]`).
    - Proves zero state size drift in unidirectional bursts and strict bounded ceiling (`MAX_HISTORICAL_DH_KEYS = 20`) across 100+ DH ratchet turnarounds with zero runaway memory leakage.
+6. **TreeKEM / MLS Concurrent Network Partition & Group Healing Fuzzer** (`e2ee/tests/mls_partition_healing_fuzz_test.rs`):
+   - Validated out-of-bounds leaf index rejection preventing integer overflow crashes in LBBT path math.
+   - Tested concurrent disjoint subgroup updates, confirming conflict rejection without state corruption.
+   - Verified canonical linear log reconciliation where all members converge to 100% identical root public/private keys and epoch secrets.
+   - *Direct Discovery*: Discovered and resolved **MLS-01** (integer overflow crash and silent blind state corruption).
+7. **Skipped-Key Expiration, Memory Pruning & DoS Limit Stress Suite** (`e2ee/tests/skipped_keys_pruning_dos_test.rs`):
+   - Tested DoS skip throttling (blocking sequence jumps > 100 in one epoch).
+   - Tested cumulative FIFO memory pruning across 20 epochs, proving strict `MAX_SKIPPED_KEYS = 1000` ceiling.
+   - Verified that evicted keys fail to decrypt, unevicted keys decrypt out of order, and consumed keys cannot be replayed.
+8. **Hardware Keystore Attestation Tampering & Key Handle Collision Fuzzer** (`e2ee/tests/hardware_keystore_attestation_fuzz_test.rs`):
+   - Proved strict rejection of bit-flip mutations in attestation statements, attested public keys, and enclave signatures.
+   - Tested attestation nonce replay resistance.
+   - Verified slot bounds enforcement (preventing access via invalid or colliding handles) and verified secure zeroization upon key deletion.
 
 ---
 

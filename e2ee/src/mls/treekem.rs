@@ -362,6 +362,9 @@ impl TreeKEM {
         ephemeral_privs: &[[u8; 32]],
         kem_entropies: &[[u8; 32]],
     ) -> Result<UpdatePath, E2EError> {
+        if leaf_index >= self.num_leaves {
+            return Err(E2EError::InvalidMessageFormat);
+        }
         let n = Self::node_count(self.num_leaves);
         let node_index = Self::leaf_to_node(leaf_index);
         let dirpath = Self::dirpath(node_index, n);
@@ -440,6 +443,9 @@ impl TreeKEM {
 
     /// Process an update path from another member
     pub fn process_update(&mut self, path: &UpdatePath) -> Result<(), E2EError> {
+        if path.leaf_index >= self.num_leaves {
+            return Err(E2EError::InvalidMessageFormat);
+        }
         let n = Self::node_count(self.num_leaves);
         let node_index = Self::leaf_to_node(path.leaf_index);
         let dirpath = Self::dirpath(node_index, n);
@@ -477,6 +483,11 @@ impl TreeKEM {
             if decrypted_secret.is_some() {
                 break;
             }
+        }
+
+        let has_participant_keys = self.nodes.iter().any(|n| n.private_key.is_some());
+        if has_participant_keys && decrypted_secret.is_none() {
+            return Err(E2EError::DecryptionError);
         }
 
         let mut derived_private_keys = Vec::new();
